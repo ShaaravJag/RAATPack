@@ -1,0 +1,132 @@
+name: build windows app
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a GitHub Release (otherwise just attach the build to this run)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Build and smoke-test RAATPack.exe
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: RAATPackv3/frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Build the interface
+        working-directory: RAATPackv3/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install the analysis engine and packaging tools
+        working-directory: RAATPackv3/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,desktop]"
+
+      - name: Run the golden-value suite on Windows
+        working-directory: RAATPackv3/backend
+        run: python -m pytest -q
+
+      - name: Package with PyInstaller
+        working-directory: RAATPackv3/build
+        run: pyinstaller --noconfirm --clean raatpack.spec
+
+      - name: Smoke-test the packaged application
+        shell: pwsh
+        working-directory: RAATPackv3/build/dist/RAATPack
+        run: |
+          Write-Host "Starting RAATPack.exe headless on port 8765..."
+          $p = Start-Process -FilePath ".\RAATPack.exe" `
+                             -ArgumentList "--no-window","--port","8765" `
+                             -PassThru -WindowStyle Hidden
+          $ok = $false
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 2
+            try {
+              $h = Invoke-RestMethod "http://127.0.0.1:8765/api/health" -TimeoutSec 5
+              if ($h.ok) { $ok = $true; break }
+            } catch { }
+          }
+          if (-not $ok) {
+            Write-Host "::error::The packaged app did not answer /api/health within 120s."
+            Get-ChildItem "$env:APPDATA\RAATPack\logs" -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "--- $($_.FullName) ---"; Get-Content $_.FullName -Tail 60 }
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+            exit 1
+          }
+          $mods = Invoke-RestMethod "http://127.0.0.1:8765/api/modules"
+          $tpls = Invoke-RestMethod "http://127.0.0.1:8765/api/templates"
+          $ui   = (Invoke-WebRequest "http://127.0.0.1:8765/" -TimeoutSec 10).StatusCode
+          Write-Host "  health    : ok"
+          Write-Host "  modules   : $($mods.Count)"
+          Write-Host "  templates : $($tpls.Count)"
+          Write-Host "  UI        : HTTP $ui"
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          if ($mods.Count -ne 10) { Write-Host "::error::expected 10 modules, got $($mods.Count)"; exit 1 }
+          if ($tpls.Count -lt 20) { Write-Host "::error::expected >=20 templates, got $($tpls.Count)"; exit 1 }
+          if ($ui -ne 200)        { Write-Host "::error::the bundled interface did not load"; exit 1 }
+          Write-Host "Smoke test passed."
+
+      - name: Assemble the distribution folder
+        shell: pwsh
+        run: |
+          $ver = if ($env:GITHUB_REF -like "refs/tags/*") { $env:GITHUB_REF -replace "refs/tags/","" } else { "dev-$($env:GITHUB_SHA.Substring(0,7))" }
+          echo "VERSION=$ver" >> $env:GITHUB_ENV
+          $out = "RAATPack-$ver-windows"
+          New-Item -ItemType Directory -Path $out | Out-Null
+          Copy-Item "RAATPackv3/build/dist/RAATPack" -Destination "$out/RAATPack" -Recurse
+          New-Item -ItemType Directory -Path "$out/Instructions" | Out-Null
+          Copy-Item "Instructions/RAATPack v3 Instructions.pdf" -Destination "$out/Instructions/"
+          Copy-Item "RAATPackv3/build/READ ME FIRST.txt" -Destination "$out/"
+          Compress-Archive -Path $out -DestinationPath "$out.zip"
+          echo "ZIP=$out.zip" >> $env:GITHUB_ENV
+          Write-Host "Built $out.zip ($([math]::Round((Get-Item "$out.zip").Length/1MB,1)) MB)"
+
+      - name: Attach the build to this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP }}
+          path: ${{ env.ZIP }}
+          retention-days: 30
+
+      - name: Publish a GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $lines = @(
+            "**RAAT-Pack $env:VERSION for Windows 10 / 11**",
+            "",
+            "1. Download ``$env:ZIP`` below and unzip it anywhere (the Desktop is fine).",
+            "2. Open the ``RAATPack`` folder and double-click **RAATPack.exe**.",
+            "3. Windows SmartScreen may warn on first run - click *More info*, then *Run anyway*.",
+            "",
+            "No MATLAB Runtime and no Excel required. The user manual is in the ``Instructions`` folder,",
+            "and ``READ ME FIRST.txt`` covers setup in one page.",
+            "",
+            "This build passed the golden-value regression suite and an automated launch test on Windows."
+          )
+          ($lines -join "`n") | Out-File -FilePath release-notes.md -Encoding utf8
+          gh release create "$env:VERSION" "$env:ZIP" --title "RAAT-Pack $env:VERSION" --notes-file release-notes.md --latest

@@ -45,7 +45,36 @@ Open **http://127.0.0.1:8765**.
 If you are changing the interface, run `npm run dev` in `frontend/` instead (port 5173, proxies to the
 backend) so edits reload live.
 
-### Building the Windows application
+---
+
+## Distributing to the lab
+
+**You do not need a Windows machine.** GitHub Actions builds, tests and publishes the Windows
+application for you.
+
+```bash
+git tag v3.0.0
+git push origin v3.0.0
+```
+
+That triggers `.github/workflows/release.yml`, which on a Windows runner:
+
+1. builds the interface,
+2. runs the golden-value suite **on Windows**,
+3. packages `RAATPack.exe` with PyInstaller,
+4. **launches the packaged app headless and checks it answers** — 10 modules, 23 templates, UI on
+   HTTP 200 — failing the build if it does not,
+5. zips the app together with the manual and `READ ME FIRST.txt`,
+6. publishes a GitHub Release with that zip attached.
+
+Send the team the Releases link. The repository is public, so nobody needs a GitHub account to
+download it. They unzip, double-click `RAATPack.exe`, and that is the whole install — no MATLAB
+Runtime, no Excel, no Python.
+
+To test the pipeline without publishing anything, run the workflow manually from the **Actions** tab
+with *Publish* left unchecked; the zip is attached to the run instead of a Release.
+
+### Building it yourself instead
 
 On Windows with Python 3.11+ and Node 18+:
 
@@ -71,6 +100,7 @@ RAATPackv3/                  Version 3 — the current software
       api/                   FastAPI routes and session state
       modules/registry.py    per-module presentation metadata
       config/settings.py     on-disk paths and user settings
+      desktop.py             packaged-app launcher (native window, browser fallback, file logging)
     data/templates/          23 built-in file templates (the lab's v2 library)
     tests/                   golden-value regression suite + fixtures
   frontend/src/              React + TypeScript interface

@@ -1,0 +1,80 @@
+RAAT-Pack v3 — Rutgers Asphalt Analysis Tool-Pack
+Rutgers Asphalt Pavement Laboratory / CAIT
+===================================================================
+
+GETTING STARTED
+-------------------------------------------------------------------
+1. Keep this whole folder together. Put it wherever you like —
+   the Desktop or C:\RAATPack are both fine.
+
+2. Open the "RAATPack" folder and double-click  RAATPack.exe
+
+3. The first launch takes a few seconds while Windows checks the
+   files. A window will open with the Tool-Pack in it.
+
+4. Optional: right-click RAATPack.exe > Send to > Desktop
+   (create shortcut).
+
+There is nothing to install. No MATLAB Runtime. No Excel.
+To remove the software, delete this folder.
+
+
+"WINDOWS PROTECTED YOUR PC"
+-------------------------------------------------------------------
+The application is not code-signed yet, so SmartScreen may warn you
+the first time. Click "More info", then "Run anyway". This happens
+once per machine.
+
+
+FIRST FIVE MINUTES
+-------------------------------------------------------------------
+- Open Settings (bottom of the sidebar) and set your institution
+  name and logo. They appear on every report you export.
+
+- Open File templates. A template tells the software where the
+  numbers are inside your machine's output file. The whole library
+  from Version 2 is already built in — you will normally just pick
+  one from the list.
+
+- Then open any test module and follow the five numbered steps:
+  project info -> files -> specimens -> run -> export.
+
+The full manual is in the Instructions folder next to this file.
+
+
+WHERE YOUR FILES GO
+-------------------------------------------------------------------
+Settings, custom templates and every report you export are kept in
+
+    C:\Users\<you>\AppData\Roaming\RAATPack\
+
+Exports are also offered as a normal download when you press Export,
+so you can save them wherever you like. The copy in that folder is
+a safety net. The exact path is shown at the bottom of the Settings
+screen, and there is an "Open exports folder" button next to Export.
+
+
+IF SOMETHING GOES WRONG
+-------------------------------------------------------------------
+A log is written to
+
+    C:\Users\<you>\AppData\Roaming\RAATPack\logs\raatpack.log
+
+Send that file along with a description of what you were doing and
+the machine file that caused it, if you can share it.
+
+If the window opens blank or white, the Microsoft Edge WebView2
+runtime is missing. Run Windows Update, or install the free
+"WebView2 Evergreen Runtime" from Microsoft, then try again.
+
+
+IMPORTANT — THE NUMBERS ARE THE SAME AS VERSION 2
+-------------------------------------------------------------------
+Version 3 is a rewrite of the software around the same calculations,
+not a new analysis. Every equation was ported from the Version 2
+MATLAB code and checked against the summary reports Version 2
+produced from the laboratory's demo specimens. Where Version 2 had
+a quirk that affected a reported value, that quirk was kept on
+purpose so your historical results stay comparable.
+
+Appendix B of the manual lists them.

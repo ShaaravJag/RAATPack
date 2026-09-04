@@ -1,24 +1,105 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for RAAT-Pack v3 (run on Windows from the build/ folder)
-import os, sys
+"""
+PyInstaller spec for RAAT-Pack v3.  Written for PyInstaller 6.x.
+
+Build (on Windows, from the repository):
+    cd RAATPackv3/frontend && npm ci && npm run build
+    cd ../backend && pip install -e ".[desktop]"
+    cd ../build && pyinstaller --noconfirm --clean raatpack.spec
+Produces build/dist/RAATPack/RAATPack.exe (one-folder; ship the whole folder).
+"""
 from pathlib import Path
-ROOT = Path(SPECPATH).resolve().parent
+
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
+
+ROOT = Path(SPECPATH).resolve().parent          # .../RAATPackv3
 BACKEND = ROOT / "backend"
 DIST_FE = ROOT / "frontend" / "dist"
-assert DIST_FE.exists(), "frontend/dist not found — run `npm run build` in frontend/ first"
+ICON = ROOT / "build" / "icon.ico"
 
-block_cipher = None
-hidden = ["uvicorn.logging", "uvicorn.loops", "uvicorn.loops.auto", "uvicorn.protocols", "uvicorn.protocols.http",
-          "uvicorn.protocols.http.auto", "uvicorn.protocols.websockets", "uvicorn.protocols.websockets.auto",
-          "uvicorn.lifespan", "uvicorn.lifespan.on", "multipart", "scipy.special._ufuncs_cxx", "scipy._lib.messagestream",
-          "matplotlib.backends.backend_pdf", "matplotlib.backends.backend_agg", "openpyxl.chart", "raatpack.api.routes_core",
-          "raatpack.api.routes_ws", "raatpack.api.routes_dm", "webview.platforms.winforms", "webview.platforms.edgechromium"]
+if not (DIST_FE / "index.html").exists():
+    raise SystemExit(
+        f"frontend/dist not found at {DIST_FE}.\n"
+        "Build the interface first:  cd frontend && npm ci && npm run build"
+    )
 
-a = Analysis([str(BACKEND / "raatpack" / "desktop.py")], pathex=[str(BACKEND)], binaries=[],
-             datas=[(str(BACKEND / "data" / "templates"), "data/templates"), (str(DIST_FE), "frontend_dist")],
-             hiddenimports=hidden, hookspath=[], runtime_hooks=[], excludes=["tkinter", "PyQt5", "PySide2", "IPython", "notebook"],
-             cipher=block_cipher, noarchive=False)
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="RAATPack", debug=False, bootloader_ignore_signals=False,
-          strip=False, upx=False, console=False, icon=str(ROOT / "build" / "icon.ico") if (ROOT / "build" / "icon.ico").exists() else None)
-coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, strip=False, upx=False, name="RAATPack")
+# --- data shipped inside the bundle -------------------------------------------------
+# raatpack.config.settings.bundle_dir() resolves to sys._MEIPASS when frozen, and expects
+# these two paths relative to it.
+datas = [
+    (str(BACKEND / "data" / "templates"), "data/templates"),
+    (str(DIST_FE), "frontend_dist"),
+]
+binaries = []
+hiddenimports = collect_submodules("raatpack")
+
+# uvicorn/starlette resolve these dynamically at runtime.
+hiddenimports += [
+    "uvicorn.logging", "uvicorn.loops", "uvicorn.loops.auto",
+    "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.http.h11_impl", "uvicorn.protocols.websockets",
+    "uvicorn.protocols.websockets.auto", "uvicorn.lifespan", "uvicorn.lifespan.on",
+    "multipart", "multipart.multipart",
+    "scipy.special._ufuncs_cxx", "scipy._lib.messagestream",
+    "scipy.optimize", "scipy.stats",
+    "matplotlib.backends.backend_pdf", "matplotlib.backends.backend_agg",
+    "openpyxl.chart",
+]
+
+# pywebview ships JS assets and platform backends that are imported by name.
+for pkg in ("webview",):
+    d, b, h = collect_all(pkg)
+    datas += d
+    binaries += b
+    hiddenimports += h
+hiddenimports += [
+    "webview.platforms.winforms",
+    "webview.platforms.edgechromium",
+    "clr", "clr_loader", "pythonnet",
+]
+
+datas += collect_data_files("matplotlib")
+
+a = Analysis(
+    [str(BACKEND / "raatpack" / "desktop.py")],
+    pathex=[str(BACKEND)],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=["tkinter", "PyQt5", "PyQt6", "PySide2", "PySide6", "IPython", "notebook", "pytest"],
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="RAATPack",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=False,                 # no console window; see the log file in the data folder
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=str(ICON) if ICON.exists() else None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="RAATPack",
+)
