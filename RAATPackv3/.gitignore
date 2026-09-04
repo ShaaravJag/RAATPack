@@ -1,0 +1,10 @@
+backend/.venv/
+backend/**/__pycache__/
+backend/*.egg-info/
+backend/.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+build/dist/
+build/build/
+*.pyc
+.DS_Store

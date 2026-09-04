@@ -1,0 +1,61 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  golden:
+    name: Golden-value regression suite
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the oldest we support in CI (3.8 still works locally);
+        # 3.12 catches NumPy 2.x / SciPy API drift early.
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install the analysis engine
+        working-directory: RAATPackv3/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run the golden-value suite
+        working-directory: RAATPackv3/backend
+        # These tests read "Demo Data/" from the repository root and assert every
+        # module against the numbers printed in the Version 2 summary reports.
+        run: python -m pytest -q
+
+  frontend:
+    name: Frontend type-check and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: RAATPackv3/frontend/package-lock.json
+
+      - name: Install
+        working-directory: RAATPackv3/frontend
+        run: npm ci
+
+      - name: Type-check
+        working-directory: RAATPackv3/frontend
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: RAATPackv3/frontend
+        run: npm run build

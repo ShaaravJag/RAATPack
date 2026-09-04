@@ -1,0 +1,53 @@
+"""The report data contract shared by the Excel and PDF writers."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+from ..equations._base import Field
+
+FOOTER = "This report was developed using the Rutgers Asphalt Analysis Tool-Pack (RAAT-Pack)"
+
+
+@dataclass
+class Curve:
+    name: str
+    x: List[float]
+    y: List[float]
+    style: str = "line"          # line | dashed | marker
+    color: Optional[str] = None
+
+
+@dataclass
+class ReportSpec:
+    module_id: str
+    layout: str                              # table | hamburg | apa | beam | dm
+    title: str                               # standard / title line
+    chart_title: str
+    x_label: str
+    y_label: str
+    project: Dict[str, str]                  # project, mix_type, test_temp, institution, date, technician
+    columns: List[Field]                     # table columns in order (after Specimen ID)
+    rows: List[Dict[str, Any]]               # each has 'specimen_id' + column keys
+    curves: List[Curve]
+    stats: bool = True
+    logo_path: Optional[str] = None
+    passfail: Optional[float] = None
+    passfail_label: str = ""
+    notes: List[str] = field(default_factory=list)
+    extra: Dict[str, Any] = field(default_factory=dict)   # layout-specific payload
+    footer: str = FOOTER
+    generated_by: str = "RAAT-Pack v3"
+
+
+def fmt_value(v, f: Field) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    try:
+        if f.fmt:
+            return format(v, f.fmt)
+        return f"{v:.{f.dp}f}"
+    except Exception:
+        return str(v)

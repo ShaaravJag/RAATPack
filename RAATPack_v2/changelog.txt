@@ -1,0 +1,9 @@
+-Added File Input Configuration
+-Added Multiple File Analysis
+
+-Changed CTIndex for field cores
+-Changed Template Sheets
+-Changed Cold SCB Tail Fitting
+	-Set B to -2
+	-Notifies User if Tail Fitting Fails
+-DCT: Changed displacement @ peak. It was using stroke instead of CMOD

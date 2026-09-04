@@ -1,0 +1,26 @@
+# Normalise line endings so the Mac/Windows split in the lab does not churn diffs.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF so they run correctly when checked out.
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Binary — never diff or convert these.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.pdf   binary
+*.xlsx  binary
+*.xls   binary
+*.fig   binary
+*.mp4   binary
+*.zip   binary
+
+# Treat MATLAB and data files as text for diffing.
+*.m     text
+*.csv   text
+*.json  text
+*.yaml  text
+*.yml   text

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raatpack"
+version = "3.0.0"
+description = "Rutgers Asphalt Analysis Tool-Pack v3 — analysis engine and API"
+requires-python = ">=3.8"
+dependencies = [
+  "numpy>=1.21",
+  "scipy>=1.7",
+  "openpyxl>=3.0",
+  "matplotlib>=3.4",
+  "fastapi>=0.95",
+  "uvicorn[standard]>=0.20",
+  "python-multipart>=0.0.5",
+  "pydantic>=1.10",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "httpx>=0.23"]
+desktop = ["pywebview>=4.0", "pyinstaller>=5.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["raatpack*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

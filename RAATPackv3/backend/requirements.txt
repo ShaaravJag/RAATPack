@@ -1,0 +1,19 @@
+# Convenience mirror of the dependencies declared in pyproject.toml.
+# pyproject.toml is canonical — prefer:  pip install -e ".[dev]"
+numpy>=1.21
+scipy>=1.7
+openpyxl>=3.0
+matplotlib>=3.4
+fastapi>=0.95
+uvicorn[standard]>=0.20
+python-multipart>=0.0.5
+pydantic>=1.10
+pyyaml>=6.0
+
+# Development / tests
+pytest>=7
+httpx>=0.23
+
+# Desktop packaging (Windows) — installed by build/build_windows.ps1
+# pywebview>=4.0
+# pyinstaller>=5.0

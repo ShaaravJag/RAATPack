@@ -1,0 +1,57 @@
+# ─── Legacy Version 2 build output (1.1 GB; the 924 MB MCR installer exceeds
+#     GitHub's 100 MB per-file hard limit and will cause the push to be rejected) ───
+RAATPack_v2/RAATPack_v2/
+RAATPack_v2/Templates/
+RAATPack_v2 - SJ Edits/
+Version 2.zip
+*.exe
+*.msi
+
+# ─── Instruction videos (284 MB) — distribute via Box/Drive or a GitHub Release ───
+Instructions/Video Instructions/
+
+# ─── Python ───
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ─── Node / frontend ───
+node_modules/
+RAATPackv3/frontend/dist/
+.npm/
+*.tsbuildinfo
+
+# ─── PyInstaller output ───
+RAATPackv3/build/build/
+RAATPackv3/build/dist/
+*.spec.bak
+
+# ─── Application runtime data (per-user; never committed) ───
+RAATPackv3/backend/data/uploads/
+RAATPackv3/backend/data/exports/
+RAATPackv3/backend/data/logos/
+settings.json
+
+# ─── Editors / OS ───
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*~
+
+# ─── MATLAB scratch ───
+*.asv
+*.m~

@@ -1,0 +1,46 @@
+{
+  "_comment": "Golden values transcribed from the v2 demo reports (RAATdev/Demo Data/*/*.pdf). Rounded as printed.",
+  "demo_root": "../../../Demo Data",
+  "ideal_ct": {"thickness_mm": 62.0, "diameter_mm": 150.0, "template": "mts_m_mm",
+    "rows": [
+      {"file": "IDEAL-CT/IDEALCT Demo File 1.xlsx", "peak_load_kN": 21.5, "L_mm": 6.0, "tensile_strength_kPa": 1474.8, "Gf_J_per_m2": 15028.0, "slope_S": 5.16, "Gf_over_S": 2915.2, "Gf_S_LD2": 4.7, "CT_index": 116.5},
+      {"file": "IDEAL-CT/IDEALCT Demo File 2.xlsx", "peak_load_kN": 22.3, "L_mm": 5.8, "tensile_strength_kPa": 1526.9, "Gf_J_per_m2": 14747.5, "slope_S": 5.21, "Gf_over_S": 2832.6, "Gf_S_LD2": 4.2, "CT_index": 109.0},
+      {"file": "IDEAL-CT/IDEALCT Demo File 3.xlsx", "peak_load_kN": 22.7, "L_mm": 6.4, "tensile_strength_kPa": 1554.0, "Gf_J_per_m2": 16460.6, "slope_S": 5.26, "Gf_over_S": 3128.7, "Gf_S_LD2": 5.7, "CT_index": 134.0}
+    ]},
+  "cold_scb": {"thickness_mm": 25.0, "radius_mm": 75.0, "notch_mm": 15.0,
+    "rows": [
+      {"file": "Cold SCB/Cold SCB Demo File 4.xlsx", "peak_load_kN": 2.4, "time_at_peak_s": 301.7, "Uc_mm": 1.466, "stiffness_kN_per_m": 2752.7, "K_IC": 0.747, "Gf_J_per_m2": 1586, "cmod_slope_mm_per_s": 5.00e-4},
+      {"file": "Cold SCB/Cold SCB Demo File 5.xlsx", "peak_load_kN": 3.8, "time_at_peak_s": 123.9, "Uc_mm": 1.177, "stiffness_kN_per_m": 2967.7, "K_IC": 1.148, "Gf_J_per_m2": 1355, "cmod_slope_mm_per_s": 4.93e-4},
+      {"file": "Cold SCB/Cold SCB Demo File 6.xlsx", "peak_load_kN": 2.9, "time_at_peak_s": 452.1, "Uc_mm": 1.286, "stiffness_kN_per_m": 2889.4, "K_IC": 0.885, "Gf_J_per_m2": 1385, "cmod_slope_mm_per_s": 5.00e-4}
+    ]},
+  "hamburg": {"file": "HAM/HAM Demo File 1.xlsx",
+    "left":  {"max_rut_mm": 4.03, "creep_slope": 1.08e-4, "stripping_slope": 1.46e-4, "sip_cycles": null},
+    "right": {"max_rut_mm": 3.38, "creep_slope": 4.92e-5, "stripping_slope": 1.02e-4, "sip_cycles": 16197},
+    "avg_sip_cycles": 16197},
+  "scb": {"thickness_mm": 50.0, "ligament_mm": 58.0,
+    "rows": [
+      {"file": "SCB/SCB Demo File 1.xlsx", "id": "1A", "peak_load_kN": 3.31, "Gf_J_per_m2": 2201.6, "slope_kN_per_mm": -3.01, "flexibility_index": 7.32},
+      {"file": "SCB/SCB Demo File 2.xlsx", "id": "1B", "peak_load_kN": 3.46, "Gf_J_per_m2": 2009.5, "slope_kN_per_mm": -3.76, "flexibility_index": 5.34},
+      {"file": "SCB/SCB Demo File 3.xlsx", "id": "2A", "peak_load_kN": 3.52, "Gf_J_per_m2": 2473.5, "slope_kN_per_mm": -3.41, "flexibility_index": 7.26},
+      {"file": "SCB/SCB Demo File 4.xlsx", "id": "2B", "peak_load_kN": 3.34, "Gf_J_per_m2": 2413.2, "slope_kN_per_mm": -3.68, "flexibility_index": 6.56}
+    ]},
+  "htidt": {"thickness_mm": 150.0, "diameter_mm": 150.0, "template": "SmartJIG_to_RAAT",
+    "rows": [
+      {"file": "HTIDT/HTIDT Demo File 1.csv", "peak_load_N": 6130.0, "idt_strength_kPa": 173.4},
+      {"file": "HTIDT/HTIDT Demo File 2.csv", "peak_load_N": 6940.0, "idt_strength_kPa": 196.4},
+      {"file": "HTIDT/HTIDT Demo File 3.csv", "peak_load_N": 6220.0, "idt_strength_kPa": 176.0}
+    ]},
+  "dct": {"thickness_mm": 50.0, "ligament_mm": 83.0,
+    "rows": [
+      {"file": "DCT/DCT Demo File 1.xlsx", "peak_load_kN": 2.606, "displacement_at_peak_mm": 0.194, "time_at_peak_s": 11.40, "Gf_J_per_m2": 601.1, "cmod_slope_mm_per_s": 0.0170},
+      {"file": "DCT/DCT Demo File 3.xlsx", "peak_load_kN": 2.410, "displacement_at_peak_mm": 0.197, "time_at_peak_s": 11.60, "Gf_J_per_m2": 452.8, "cmod_slope_mm_per_s": 0.0170},
+      {"file": "DCT/DCT Demo File 4.xlsx", "peak_load_kN": 2.606, "displacement_at_peak_mm": 0.194, "time_at_peak_s": 11.40, "Gf_J_per_m2": 601.1, "cmod_slope_mm_per_s": 0.0170}
+    ]},
+  "apa": {"file": "APA/APA, 2% AV BRIC.xlsx", "left_rut_mm": 2.26, "center_rut_mm": 2.25, "right_rut_mm": null, "avg": 2.26, "std": 0.01, "cov": 0.30},
+  "beam": {"file": "BEAM/Beam_RR_Berger_#7.csv", "A": 1.33e3, "b": -2.79e-6, "nf50_AASHTO": 248502, "nf50_ASTM": 253987, "stiffness_N50": 2222, "x_at_max": 266070},
+  "dynamic_modulus": {"folder": "Dynamic Modulus/Winslow", "ref_temp_c": 20.0, "emax_psi": 3294355,
+    "target_temps_c": [4, 20, 45],
+    "first_row": {"target_temp_f": 39, "frequency": 25, "E_psi": 2874006, "phase": 9.4},
+    "shift_log10": {"39.0": 2.0721, "113.0": -2.7999},
+    "grid_predicted_psi": [4198, 4543, 5180, 6408, 8946, 28978, 66981, 165777, 388508, 783139, 1864317, 2334399, 2682479, 2917442, 3067104, 3214506, 3247429, 3266855]}
+}
