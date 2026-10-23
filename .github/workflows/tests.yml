@@ -9,13 +9,19 @@ on:
 jobs:
   golden:
     name: Golden-value regression suite
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        # 3.9 is the oldest we support in CI (3.8 still works locally);
-        # 3.12 catches NumPy 2.x / SciPy API drift early.
-        python-version: ["3.9", "3.12"]
+        # 3.9 is the oldest we exercise in CI (pyproject declares >=3.8, and 3.8 still works
+        # locally); 3.12 catches NumPy 2.x / SciPy API drift early. The runner is pinned per
+        # version because ubuntu-latest moved to 26.04, which no longer ships a 3.9 build —
+        # Python 3.9 reached end of life in October 2025.
+        include:
+          - python-version: "3.9"
+            runner: ubuntu-22.04
+          - python-version: "3.12"
+            runner: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
