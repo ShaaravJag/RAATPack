@@ -99,9 +99,14 @@ the app, and then smoke-tests the frozen bundle — it loads the sample data, ru
 exports all four formats from inside the `.app`, which is where missing hidden imports actually
 surface.
 
-The app is **not signed or notarised**, so the first launch on another Mac needs right-click →
-**Open** once to get past Gatekeeper. It is meant for demonstrating the toolpack; the lab's own
-copies are the Windows build above.
+The result is about 127 MB. The very first launch takes roughly 11 seconds while matplotlib
+builds its font cache; that cache is kept in the application's own data folder, so every launch
+after it is about a second.
+
+The app is **not signed or notarised**, so the first launch on a Mac it was copied to needs
+right-click → **Open** once to get past Gatekeeper (a locally built copy runs straight away —
+macOS only quarantines files that arrived from elsewhere). It is meant for demonstrating the
+toolpack; the lab's own copies are the Windows build above.
 
 ---
 
