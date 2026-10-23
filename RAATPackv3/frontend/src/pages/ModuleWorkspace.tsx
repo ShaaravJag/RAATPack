@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import useEscape from "../lib/useEscape";
 import { Link, useParams } from "react-router-dom";
 import { api, fmt } from "../lib/api";
 import type { CurvePayload, LoadedFile, ModuleSpec, SampleInfo, Settings, Template, WorkspaceState } from "../lib/types";
@@ -10,6 +11,17 @@ import StatsPanel from "../components/StatsPanel";
 import { useToast } from "../components/Toast";
 
 const PROJECT_FIELDS: [string, string][] = [["project", "Project name"], ["mix_type", "Mix type"], ["test_temp", "Test temperature"], ["institution", "Institution"], ["date", "Date tested"], ["technician", "Technician"]];
+
+// The same project is usually run through several modules in a sitting, and these six fields
+// only feed the report header. Remember the last set so the next module starts filled in, per
+// viewer and per browser — it is a convenience, never the source of truth for a report.
+const CARRY_KEY = "raatpack.lastProject";
+const readCarry = (): Record<string, string> => {
+  try { return JSON.parse(localStorage.getItem(CARRY_KEY) || "{}"); } catch { return {}; }
+};
+const writeCarry = (p: Record<string, string>) => {
+  try { localStorage.setItem(CARRY_KEY, JSON.stringify(p)); } catch { /* private window, or storage off */ }
+};
 
 export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]; settings: Settings | null }) {
   const { id = "" } = useParams();
@@ -32,14 +44,17 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
   const [proj, setProj] = useState<Record<string, string>>({});
   const [filling, setFilling] = useState<string | null>(null);   // which column is being filled down
   const [sample, setSample] = useState<SampleInfo | null>(null);
+  const [autoPicked, setAutoPicked] = useState(false);   // was the template chosen for the user?
+  useEscape(() => { if (rawOpen) setRawOpen(false); else if (pickMode) setPickMode(null); });
   const covWarn = settings?.cov_warn_pct ?? 15;
 
   const reload = useCallback(async () => { if (!id) return; const s = await api.ws(id); setSt(s); return s; }, [id]);
-  useEffect(() => { reload().catch(e => toast(String(e), "err")); }, [reload]);
+  useEffect(() => { reload().catch(e => toast(e?.message || String(e), "err")); }, [reload]);
   useEffect(() => {
     if (!spec?.template_kind) return;
-    api.templates(spec.template_kind).then(ts => {
+    api.templates(spec.template_kind).catch(e => { toast(`Could not load the file templates: ${e.message}`, "err"); return [] as Template[]; }).then(ts => {
       setTemplates(ts);
+      if (!ts.length) return;
       if (tid && ts.some(t => t.id === tid)) return;
       // prefer this module's own default, then the lab's MTS template for it, then any default
       const needle = spec.short.toLowerCase().replace(/[^a-z]/g, "");
@@ -47,7 +62,9 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
       const pick = ts.find(t => t.name.startsWith("Default") && norm(t.name).includes(needle))
         || ts.find(t => t.name.startsWith("MTS TWSX") && norm(t.name).includes(needle))
         || ts.find(t => t.name.startsWith("Default")) || ts[0];
-      if (pick) setTid(pick.id);
+      // Picking silently is the dangerous part: a wrong-but-plausible template parses to numbers
+      // rather than failing, so the report comes out confidently wrong. Say what was chosen.
+      if (pick) { setTid(pick.id); setAutoPicked(!norm(pick.name).includes(needle)); }
     });
   }, [spec?.template_kind, spec?.short]);
   useEffect(() => { if (st && sel && st.files.find(f => f.id === sel)?.result) api.curve(id, sel).then(setCurve).catch(() => setCurve(null)); else setCurve(null); }, [st, sel, id]);
@@ -68,9 +85,11 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
   // restored. They were uncontrolled, which left the previous project's name on screen.
   const projSig = JSON.stringify(st?.project ?? {});
   useEffect(() => {
+    const carried = readCarry();
     const seeded: Record<string, string> = {};
     for (const [k] of PROJECT_FIELDS)
-      seeded[k] = st?.project?.[k] ?? (k === "institution" ? settings?.institution ?? ""
+      // what this module already has, then what the last module was given, then the settings
+      seeded[k] = st?.project?.[k] ?? carried[k] ?? (k === "institution" ? settings?.institution ?? ""
                  : k === "technician" ? settings?.technician ?? "" : "");
     setProj(seeded);
   }, [projSig, settings?.institution, settings?.technician]);
@@ -78,7 +97,12 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
   const files = st?.files || [];
   const ran = !!st?.ran;
   const overlaySeries = useMemo(() => files.filter(f => f.preview?.x?.length && !f.error).map(f => ({ name: f.specimen_id || f.name, x: f.preview.x, y: f.preview.y, style: "line" })), [files]);
-  if (!spec) return <div className="page"><div className="alert warn">{mods.length ? <>Unknown module <code>{id}</code>.</> : <span className="spin" />}</div></div>;
+  if (!spec) return (
+    <div className="page"><div className="alert warn row">
+      {mods.length ? <>Unknown module <code>{id}</code>.</>
+        : <><span className="spin" /> Waiting for the analysis engine — the module list has not
+            arrived yet. If this does not clear, use <b>Try again</b> in the sidebar.</>}
+    </div></div>);
 
   const addFiles = async (fs: File[]) => {
     if (spec.template_kind && !tid) return toast("Choose a file template first", "err");
@@ -134,7 +158,10 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
       if (picks) { setSel(s.needs_pick[0]); setOverlayMode("single"); }
     } catch (e: any) { toast(e.message, "err"); } finally { setBusy(null); }
   };
-  const saveProject = (k: string, v: string) => api.updateProject(id, { project: { [k]: v } }).then(setSt).catch(e => toast(e.message, "err"));
+  const saveProject = (k: string, v: string) => {
+    writeCarry({ ...readCarry(), ...proj, [k]: v });
+    return api.updateProject(id, { project: { [k]: v } }).then(setSt).catch(e => toast(e.message, "err"));
+  };
   const saveOption = (k: string, v: any) => api.updateProject(id, { options: { [k]: v } }).then(setSt).catch(e => toast(e.message, "err"));
   const doPick = async (x: number) => {
     if (!sel || !pickMode) return;
@@ -183,17 +210,38 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
 
       <div className="panel"><div className="ph"><h3><span className="step">1</span>Project information <span className="muted small" style={{ fontWeight: 400 }}>(optional — fills the report header)</span></h3></div>
         <div className="pb grid3">
-          {PROJECT_FIELDS.map(([k, lab]) => <label className="f" key={k}><span>{lab}</span><input className="i" value={proj[k] ?? ""} onChange={e => setProj(pv => ({ ...pv, [k]: e.target.value }))} onBlur={e => saveProject(k, e.target.value)} /></label>)}
+          {PROJECT_FIELDS.map(([k, lab]) => <label className="f" key={k}><span>{lab}</span>
+            <input className="i" type={k === "date" ? "date" : "text"} value={proj[k] ?? ""}
+              onChange={e => setProj(pv => ({ ...pv, [k]: e.target.value }))}
+              onBlur={e => { if ((st?.project?.[k] ?? "") !== e.target.value) saveProject(k, e.target.value); }} /></label>)}
+          {!st?.project?.project && !!readCarry().project && (
+            <div className="tiny muted" style={{ gridColumn: "1 / -1" }}>
+              Carried over from the last module you filled in — edit any field to change it for this report.
+            </div>
+          )}
         </div>
       </div>
 
       <div className="panel"><div className="ph"><h3><span className="step">2</span>Files</h3>
         {spec.template_kind ? <div className="row"><span className="tiny muted">File template</span>
-          <select className="i" style={{ width: 300 }} value={tid} onChange={e => setTid(e.target.value)}>{templates.map(t => <option key={t.id} value={t.id}>{t.name}{t.builtin ? "" : " (custom)"}</option>)}</select>
-          <Link to="/templates" className="btn sm">Manage…</Link></div>
+          <select className="i" style={{ width: 300 }} value={tid} onChange={e => { setTid(e.target.value); setAutoPicked(false); }}>{templates.map(t => <option key={t.id} value={t.id}>{t.name}{t.builtin ? "" : " (custom)"}</option>)}</select>
+          <Link to="/templates" className="btn sm" title="See how a template reads a file, and check one against a sample">Manage…</Link></div>
           : <span className="tiny muted">Standard IPC Global workbook (sheet 2 “RawData”) — no template needed</span>}
       </div>
         <div className="pb col">
+          {spec.template_kind && !!templates.length && (
+            <div className={"alert tiny " + (autoPicked ? "warn" : "info")}>
+              {autoPicked
+                ? <>No template is named for {spec.short}, so <b>{templates.find(t => t.id === tid)?.name}</b> was
+                   chosen as a starting point. Check it before you trust the numbers — a template that does not
+                   match the file still parses, it just reads the wrong columns or units, and the report comes out
+                   wrong rather than empty.</>
+                : <>Reading files with <b>{templates.find(t => t.id === tid)?.name}</b>, matched to {spec.short}.
+                   {spec.id === "scb" && <> This module's stroke is in <b>metres</b>; the millimetre template parses
+                   the same file without complaint and reports values 1000× out.</>} Use <b>Manage…</b> to check a
+                   template against one of your files.</>}
+            </div>
+          )}
           <FileDrop onFiles={addFiles} onIgnored={n => toast(`Skipped ${n.length === 1 ? n[0] : n.length + " files"} — Excel lock files and system files are not data.`, "err")} accept={spec.reader === "beam" || spec.reader === "xy" || spec.reader === "scb" || spec.reader === "four" ? ".xlsx,.csv" : ".xlsx"} disabled={!!busy} />
           {sample?.available && <div className="row" style={{ justifyContent: "space-between" }}>
             <span className="tiny muted">
@@ -284,7 +332,7 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
       )}
 
       {rawOpen && raw && (
-        <div className="modalbg" onClick={() => setRawOpen(false)}><div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modalbg" onClick={() => setRawOpen(false)}><div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true">
           <div className="row spread"><h2>Data points — {selFile?.specimen_id || selFile?.name}</h2><span className="tiny muted">{raw.total.toLocaleString()} rows (after template transforms){raw.rows.length < raw.total ? `, showing every ${Math.ceil(raw.total / raw.rows.length)}th` : ""}</span><button className="btn sm" onClick={() => setRawOpen(false)}>Close</button></div>
           <div className="tw" style={{ maxHeight: "70vh" }}><table className="t"><thead><tr><th>#</th>{raw.columns.map(c => <th key={c} className="n">{c}</th>)}</tr></thead>
             <tbody>{raw.rows.map((r, i) => <tr key={i}><td className="num">{i + 1}</td>{r.map((v, j) => <td key={j} className="n">{fmt(v, { dp: 5 })}</td>)}</tr>)}</tbody></table></div>

@@ -2,6 +2,24 @@ import type { CurvePayload, LoadedFile, ModuleSpec, SampleInfo, Settings, Templa
 
 const BASE = "/api";
 
+/** Raised when the request never reached the analysis engine, as opposed to the engine saying
+ *  no. fetch rejects with a TypeError for that, which is indistinguishable from a bug unless we
+ *  label it — and the two want completely different things on screen. */
+export const ENGINE_UNREACHABLE = "raatpack:engine-unreachable";
+
+async function call(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    const res = await fetch(input, init);
+    window.dispatchEvent(new CustomEvent(ENGINE_UNREACHABLE, { detail: null }));   // it answered
+    return res;
+  } catch (e: any) {
+    // The engine is a child process of the desktop window; if it dies mid-session every later
+    // request fails this way, and without this the app only ever toasted "Failed to fetch".
+    window.dispatchEvent(new CustomEvent(ENGINE_UNREACHABLE, { detail: e?.message || String(e) }));
+    throw new Error("The analysis engine is not responding. It may have stopped — close RAAT-Pack and open it again.");
+  }
+}
+
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let msg = res.statusText;
@@ -10,10 +28,10 @@ async function j<T>(res: Response): Promise<T> {
   }
   return res.json();
 }
-const get = <T,>(u: string) => fetch(BASE + u).then(j<T>);
+const get = <T,>(u: string) => call(BASE + u).then(j<T>);
 const send = <T,>(m: string, u: string, body?: any) =>
-  fetch(BASE + u, { method: m, headers: body === undefined ? {} : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }).then(j<T>);
-const form = <T,>(m: string, u: string, fd: FormData) => fetch(BASE + u, { method: m, body: fd }).then(j<T>);
+  call(BASE + u, { method: m, headers: body === undefined ? {} : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }).then(j<T>);
+const form = <T,>(m: string, u: string, fd: FormData) => call(BASE + u, { method: m, body: fd }).then(j<T>);
 
 export async function download(u: string, body: any, fallbackName = "export") {
   const res = await fetch(BASE + u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

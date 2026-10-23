@@ -19,6 +19,9 @@ export default function FileDrop({ onFiles, onIgnored, accept, label, disabled, 
 
   return (
     <div className={"drop" + (over ? " over" : "")} style={disabled ? { opacity: .5, pointerEvents: "none" } : {}}
+      role="button" tabIndex={disabled ? -1 : 0} aria-disabled={disabled}
+      aria-label={label || "Add machine output files"}
+      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inp.current?.click(); } }}
       onClick={() => inp.current?.click()}
       onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
       onDrop={e => { e.preventDefault(); setOver(false); const fs = Array.from(e.dataTransfer.files); if (fs.length) take(fs); }}>

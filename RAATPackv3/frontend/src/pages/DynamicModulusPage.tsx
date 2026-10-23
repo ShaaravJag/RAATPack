@@ -26,7 +26,7 @@ export default function DynamicModulusPage({ settings }: { settings: Settings | 
   const [tsrc, setTsrc] = useState("target");
   const [view, setView] = useState<string>("ea");
   const [dataView, setDataView] = useState<number>(-1);   // -1 average, 0..2 replicate
-  const reload = () => api.dm().then(setSt).catch(e => toast(String(e), "err"));
+  const reload = () => api.dm().then(setSt).catch(e => toast(e?.message || String(e), "err"));
   useEffect(() => { reload(); }, []);
   useEffect(() => { if (st?.assignment) { setSlots(st.assignment.slots); setTemps(st.assignment.target_temps_c); } if (st?.volumetrics && vol.Gmm === "") setVol({ Gmm: String(st.volumetrics.Gmm), Gsb: String(st.volumetrics.Gsb), air_voids: String(st.volumetrics.air_voids), ac_pct: String(st.volumetrics.ac_pct) }); }, [st?.assignment, st?.volumetrics]);
   const wrap = async (label: string, fn: () => Promise<any>) => { setBusy(label); try { const r = await fn(); setSt(r); return r; } catch (e: any) { toast(e.message, "err"); } finally { setBusy(null); } };

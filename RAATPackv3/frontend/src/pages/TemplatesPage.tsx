@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import useEscape from "../lib/useEscape";
 import { api } from "../lib/api";
 import type { Template, Transform } from "../lib/types";
 import { useToast } from "../components/Toast";
@@ -17,6 +18,9 @@ const blank = (kind: string): Partial<Template> => ({ name: "", kind, columns: k
 export default function TemplatesPage() {
   const [list, setList] = useState<Template[]>([]);
   const [edit, setEdit] = useState<Partial<Template> | null>(null);
+  // A template takes real effort to fill in; losing it to a stray click on the backdrop is not
+  // a reasonable outcome, so confirm once anything has been typed.
+  const closeEditor = () => { if (!edit?.name || confirm("Discard this template without saving?")) setEdit(null); };
   const [sample, setSample] = useState<File | null>(null);
   const [preview, setPreview] = useState<any>(null);
   const toast = useToast();
@@ -26,6 +30,7 @@ export default function TemplatesPage() {
   const setTr = (k: string, patch: Partial<Transform>) => setEdit(e => e && ({ ...e, transforms: { ...(e.transforms || {}), [k]: { ...tr(k), ...patch } } }));
   const runPreview = async (t = edit) => { if (!sample || !t) return; try { setPreview(await api.previewTemplate(sample, t)); } catch (e: any) { toast(e.message, "err"); } };
   useEffect(() => { if (sample && edit) runPreview(); }, [sample]);
+  useEscape(closeEditor, !!edit);
   const save = async () => { if (!edit?.name) return toast("Give the template a name", "err"); try { await api.saveTemplate(edit); toast("Template saved"); setEdit(null); load(); } catch (e: any) { toast(e.message, "err"); } };
   const kind = edit?.kind || "xy";
   const K = KINDS[kind];
@@ -42,8 +47,8 @@ export default function TemplatesPage() {
           <td className="row"><button className="btn sm" onClick={() => setEdit({ ...t, transforms: { ...t.transforms } })}>{t.builtin ? "Copy & edit" : "Edit"}</button><a className="btn sm" href={`/api/templates/${t.id}/download`}>Download</a>{!t.builtin && <button className="btn sm danger" onClick={async () => { if (confirm(`Delete “${t.name}”?`)) { await api.deleteTemplate(t.id); load(); } }}>Delete</button>}</td></tr>)}</tbody></table></div>
 
       {edit && (
-        <div className="modalbg" onClick={() => setEdit(null)}><div className="modal" onClick={e => e.stopPropagation()}>
-          <div className="row spread"><h2>{edit.id && !edit.builtin ? "Edit template" : "New template"}</h2><button className="btn sm" onClick={() => setEdit(null)}>Close</button></div>
+        <div className="modalbg" onClick={closeEditor}><div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div className="row spread"><h2>{edit.id && !edit.builtin ? "Edit template" : "New template"}</h2><button className="btn sm" onClick={closeEditor}>Close</button></div>
           <div className="grid2">
             <div className="col">
               <label className="f"><span>Name</span><input className="i" value={edit.name || ""} onChange={e => setEdit({ ...edit, name: e.target.value })} placeholder="e.g. Pine IDEAL-CT (CSV)" /></label>

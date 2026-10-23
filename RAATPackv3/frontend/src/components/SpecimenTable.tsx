@@ -44,7 +44,15 @@ export default function SpecimenTable({ spec, files, selected, onSelect, onChang
                     onChange={e => onChange(f.id, { inputs: { [fl.key]: e.target.value === "" ? null : Number(e.target.value) } })} />
                 </td>))}
               <td>{f.error ? <span className="chip crit" title={f.error}>error</span> : f.result ? (f.result.needs_pick ? <span className="chip warn">pick needed</span> : <span className="chip ok">done</span>) : <span className="chip n">{f.n_points} pts</span>}</td>
-              <td><button className="btn ghost sm danger" onClick={e => { e.stopPropagation(); onRemove(f.id); }} title="Remove">✕</button></td>
+              <td><button className="btn ghost sm danger" aria-label={`Remove ${f.specimen_id || f.name}`} onClick={e => {
+                e.stopPropagation();
+                // Removing a file resets the run, so every specimen's results disappear until
+                // the analysis is run again — worth saying before it happens.
+                const warn = f.result || f.error
+                  ? `Remove ${f.specimen_id || f.name}? The results table will be cleared and you will need to run the analysis again.`
+                  : `Remove ${f.specimen_id || f.name}?`;
+                if (confirm(warn)) onRemove(f.id);
+              }} title="Remove this specimen">✕</button></td>
             </tr>))}
           {!files.length && <tr><td colSpan={5 + inputs.length} className="muted" style={{ textAlign: "center", padding: 18 }}>
             No files yet — add machine output files above
