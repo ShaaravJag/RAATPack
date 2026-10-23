@@ -200,3 +200,43 @@ def test_failure_page_names_the_log():
     assert "could not start" in html.lower()
     # and it has to say something useful when there is no log at all
     assert "not writable" in desktop._failed_html(None).lower()
+
+
+# ---------------------------------------------------------------------------
+# matplotlib's font cache
+# ---------------------------------------------------------------------------
+
+def test_matplotlib_cache_overrides_pyinstallers_throwaway_dir(monkeypatch, tmp_path):
+    """PyInstaller's own matplotlib runtime hook points MPLCONFIGDIR at a fresh temp directory
+    and deletes it at exit, so the font cache can never survive a restart — five seconds added
+    to every single launch. A frozen build has to override it."""
+    import raatpack.config.settings as cfg
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp_path, raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("MPLCONFIGDIR", "/tmp/pyinstaller-throwaway")
+
+    desktop._pin_matplotlib_cache()
+    assert os.environ["MPLCONFIGDIR"] == str(tmp_path / "cache" / "matplotlib"), \
+        "a frozen build must claim its own cache directory"
+    assert (tmp_path / "cache" / "matplotlib").is_dir()
+
+
+def test_a_deliberate_setting_is_respected_outside_a_bundle(monkeypatch, tmp_path):
+    import raatpack.config.settings as cfg
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp_path, raising=False)
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.setenv("MPLCONFIGDIR", "/tmp/chosen-by-hand")
+
+    desktop._pin_matplotlib_cache()
+    assert os.environ["MPLCONFIGDIR"] == "/tmp/chosen-by-hand", \
+        "running from source, a value set on purpose should be left alone"
+
+
+def test_cache_is_claimed_when_nothing_set_it(monkeypatch, tmp_path):
+    import raatpack.config.settings as cfg
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp_path, raising=False)
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.delenv("MPLCONFIGDIR", raising=False)
+
+    desktop._pin_matplotlib_cache()
+    assert os.environ["MPLCONFIGDIR"] == str(tmp_path / "cache" / "matplotlib")

@@ -146,6 +146,33 @@ def _fatal(message: str, log_path: Optional[Path] = None) -> None:
         pass
 
 
+def _pin_matplotlib_cache() -> None:
+    """Give matplotlib a writable, persistent place for its font cache.
+
+    Building that cache takes about five seconds, and a packaged build rebuilt it on every
+    single launch — most of a cold start. The cause is PyInstaller's own matplotlib runtime
+    hook, which points MPLCONFIGDIR at a fresh temporary directory and deletes it again at
+    exit, so nothing can ever persist. That is a sensible default for an arbitrary program, but
+    this one has a data folder of its own and should use it.
+
+    So: when frozen, override whatever the hook set. When running from source, respect a value
+    the developer set deliberately.
+
+    Must run before the analysis engine is imported, because that import is what pulls
+    matplotlib in; raatpack.config.settings itself does not.
+    """
+    if os.environ.get("MPLCONFIGDIR") and not getattr(sys, "frozen", False):
+        return                                  # set deliberately outside a bundle; leave it
+    try:
+        from raatpack.config import settings as cfg
+        d = Path(cfg.DATA_DIR) / "cache" / "matplotlib"
+    except Exception:
+        d = Path(tempfile.gettempdir()) / "RAATPack" / "matplotlib"
+    if _writable_dir(d):
+        os.environ["MPLCONFIGDIR"] = str(d)
+        LOG.info("matplotlib cache: %s", d)
+
+
 # ---------------------------------------------------------------------------
 # single instance
 # ---------------------------------------------------------------------------
@@ -338,6 +365,20 @@ def _open_native_window(url: str, port: int, log_path: Optional[Path]) -> bool:
         window = webview.create_window("RAAT-Pack v3", html=SPLASH,
                                        width=1440, height=920, min_size=(1100, 700))
 
+        # Quitting from the Dock or the menu tears the process down through Cocoa, which never
+        # unwinds the Python stack — so the cleanup in main()'s finally block does not run and
+        # the instance lock is left behind. A stale lock does heal itself on the next launch,
+        # but it should be the exception, not what happens every time.
+        def _closing() -> None:
+            LOG.info("window closing; releasing the instance lock")
+            _STOP.set()
+            _release_instance()
+
+        try:
+            window.events.closing += _closing
+        except Exception as e:
+            LOG.debug("could not hook the window close event: %s", e)
+
         def _when_ready(win) -> None:
             try:
                 if _wait_for_server(port):
@@ -384,6 +425,7 @@ def main(argv=None) -> int:
                 webbrowser.open(running)
             return 0
 
+    _pin_matplotlib_cache()
     try:
         from raatpack import __version__
         from raatpack.api.app import app
