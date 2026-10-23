@@ -46,6 +46,12 @@ FRONTEND_DIST = bundle_dir() / "frontend_dist"
 if not FRONTEND_DIST.exists():
     FRONTEND_DIST = bundle_dir().parent / "frontend" / "dist"
 
+# Bundled sample data (the v2 demo set). Frozen builds carry it under data/samples;
+# from a source checkout it is the repository's own "Demo Data" folder.
+SAMPLES_DIR = bundle_dir() / "data" / "samples"
+if not SAMPLES_DIR.exists():
+    SAMPLES_DIR = bundle_dir().parents[1] / "Demo Data"
+
 
 @dataclass
 class Settings:

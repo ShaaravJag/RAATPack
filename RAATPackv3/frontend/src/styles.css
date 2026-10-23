@@ -63,6 +63,7 @@ input.i.req:placeholder-shown{border-color:var(--warn)} input.i.err{border-color
 .btn:hover{background:var(--surface-2)} .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)} .btn.primary:hover{filter:brightness(1.08)}
 .btn.ghost{border-color:transparent;background:transparent} .btn.sm{padding:4px 9px;font-size:.78rem} .btn.danger{color:var(--crit)}
+.warntext{color:var(--warn);font-weight:600}
 .chip{display:inline-block;font-family:var(--f-mono);font-size:.64rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:2px;white-space:nowrap}
 .chip.ok{background:var(--ok-soft);color:var(--ok)} .chip.warn{background:var(--warn-soft);color:var(--warn)} .chip.crit{background:var(--accent-soft);color:var(--crit)} .chip.info{background:var(--info-soft);color:var(--info)} .chip.n{background:var(--surface-2);color:var(--muted)}
 .alert{padding:9px 12px;border-radius:var(--radius);border-left:3px solid;font-size:.88rem}

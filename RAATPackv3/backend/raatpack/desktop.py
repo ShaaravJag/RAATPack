@@ -30,6 +30,19 @@ import uvicorn
 LOG = logging.getLogger("raatpack.desktop")
 
 
+def _ensure_streams() -> None:
+    """A windowed PyInstaller build has sys.stdout/sys.stderr set to None.
+
+    Anything that writes to them then raises AttributeError — including uvicorn's default
+    logging config, which binds handlers to ext://sys.stdout and ext://sys.stderr and fails
+    while uvicorn.Config() is being constructed. Point them at the null device instead.
+    """
+    import os
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+
+
 def _log_path() -> Path:
     from raatpack.config import settings as cfg
     d = cfg.DATA_DIR / "logs"
@@ -112,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--debug", action="store_true", help="verbose logging")
     args = ap.parse_args(argv)
 
+    _ensure_streams()
     log_path = _setup_logging(args.debug)
     LOG.info("RAAT-Pack starting (frozen=%s, python=%s)", getattr(sys, "frozen", False), sys.version.split()[0])
 
@@ -126,7 +140,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     port = args.port or _free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="debug" if args.debug else "warning")
+    # log_config=None: keep uvicorn from installing its own stdio handlers; ours already write
+    # to the log file, which is the only place a windowed build can report anything.
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_config=None,
+                            log_level="debug" if args.debug else "warning")
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -167,6 +184,7 @@ if __name__ == "__main__":
         raise
     except Exception:
         try:
+            LOG.error("unhandled exception\n%s", traceback.format_exc())
             _fatal("RAAT-Pack stopped unexpectedly.", _log_path())
         except Exception:
             traceback.print_exc()

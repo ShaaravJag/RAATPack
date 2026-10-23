@@ -1,4 +1,4 @@
-import type { CurvePayload, LoadedFile, ModuleSpec, Settings, Template, WorkspaceState } from "./types";
+import type { CurvePayload, LoadedFile, ModuleSpec, SampleInfo, Settings, Template, WorkspaceState } from "./types";
 
 const BASE = "/api";
 
@@ -60,9 +60,12 @@ export const api = {
   exportReport: (m: string, body: { format: string; file_ids?: string[]; options?: any }) => download(`/ws/${m}/export`, body),
   session: (m: string) => get<any>(`/ws/${m}/session`),
   loadSession: (m: string, snap: any) => send<WorkspaceState>("POST", `/ws/${m}/session`, snap),
+  samples: (m: string) => send<WorkspaceState & { sample_note?: string }>("POST", `/ws/${m}/samples`),
+  samplesInfo: (m: string) => get<SampleInfo>(`/ws/${m}/samples`),
   // dynamic modulus
   dm: () => get<any>("/dm"),
   dmReset: () => send<any>("POST", "/dm/reset"),
+  dmSamples: () => send<any>("POST", "/dm/samples"),
   dmProject: (project: Record<string, string>) => send<any>("PUT", "/dm/project", { project }),
   dmVolumetrics: (b: any) => send<any>("POST", "/dm/volumetrics", b),
   dmBinder: (kind: string, body: any) => send<any>("POST", `/dm/binder/${kind}`, body),

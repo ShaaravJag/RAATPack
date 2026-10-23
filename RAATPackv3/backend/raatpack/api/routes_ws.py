@@ -12,11 +12,12 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
-from ..config import settings as cfg
+from ..config import samples, settings as cfg
 from ..equations._base import clean
+from ..io import readers
 from ..modules import registry
 from ..reports import builders, excel as xl, pdf as pdfw
-from ..reports.spec import fmt_value
+from ..reports.spec import fmt_value, safe_filename_part
 from . import analysis
 from .state import LoadedFile, SessionStore, Workspace, new_id
 
@@ -76,7 +77,7 @@ async def add_files(module: str, request: Request, files: List[UploadFile] = Fil
             if n == 0:
                 lf.error = "No numeric data found — check the template's columns and data-start row."
         except Exception as e:
-            lf.error = f"Could not read file: {type(e).__name__}: {e}"
+            lf.error = readers.describe_read_failure(lf.name, e)
         ws.files.append(lf)
         ws.ran = False
         added.append(analysis.file_summary(module, lf))
@@ -231,7 +232,7 @@ def export(module: str, body: ExportIn, request: Request):
     opts.update(body.options or {})
     spec = builders.build(module, files, project, opts, settings.logo_path or None)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    base = f"{m.short}_{(project.get('project') or 'summary').strip().replace(' ', '_')}_{stamp}"
+    base = f"{safe_filename_part(m.short, 'report')}_{safe_filename_part(project.get('project'))}_{stamp}"
     out_dir: Path = request.app.state.export_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     hdr = lambda out: {"X-Saved-Path": str(out), "Access-Control-Expose-Headers": "X-Saved-Path, Content-Disposition"}
@@ -254,6 +255,72 @@ def export(module: str, body: ExportIn, request: Request):
         return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                                  headers={"Content-Disposition": f'attachment; filename="{base}.csv"'})
     raise HTTPException(400, "unknown format")
+
+
+@router.post("/ws/{module}/samples")
+def load_samples(module: str, request: Request):
+    """Load this module's bundled sample set, pre-filled and ready to Run.
+
+    Same path-loading as restoring a session — the files already sit on disk, so nothing is
+    uploaded. Specimen ids and dimensions come from the manifest in raatpack.config.samples,
+    which is also what the verification harness and the golden tests read.
+    """
+    sset = samples.find(module)
+    if sset is None:
+        raise HTTPException(404, f"No sample data ships for {module}.")
+    if not sset.path().exists():
+        raise HTTPException(404, "The sample data is not installed with this copy of RAAT-Pack.")
+
+    m = registry.get(module)
+    store: SessionStore = request.app.state.store
+    lib = request.app.state.templates
+    store.reset(module)
+    ws = _ws(request, module)
+    # Named on the report so a sample run is never mistaken for real work.
+    ws.project = {"project": f"RAAT-Pack sample data - {m.short}",
+                  "mix_type": "", "test_temp": "", "technician": ""}
+
+    missing: List[str] = []
+    for sf in sset.specimens():
+        path = sset.file_path(sf)
+        if not path.exists():
+            missing.append(sf.name)
+            continue
+        inputs: Dict[str, Optional[float]] = {f.key: None for f in m.specimen_inputs}
+        for k, v in sset.dimensions.items():
+            if k in inputs:
+                inputs[k] = float(v)
+        lf = LoadedFile(new_id(), Path(sf.name).name, str(path), sset.template, None,
+                        sf.specimen_id, inputs)
+        try:
+            t = lib.get(sset.template) if sset.template else None
+            lf.data = analysis.load_data(module, path, t)
+        except Exception as e:
+            lf.error = readers.describe_read_failure(lf.name, e)
+        ws.files.append(lf)
+
+    if not ws.files:
+        raise HTTPException(404, "The sample data folder is present but empty.")
+    out = _state(module, ws)
+    out["sample_note"] = (f"Loaded {len(ws.files)} sample specimen(s) for {m.short}"
+                          + (f" — {sset.reference_pdf.split('/')[-1]} is the report v2 produced "
+                             f"from them." if sset.reference_pdf else
+                             " — this module ships no v2 reference report."))
+    if missing:
+        out["sample_note"] += f" Missing from the install: {', '.join(missing)}."
+    return out
+
+
+@router.get("/ws/{module}/samples")
+def describe_samples(module: str, request: Request):
+    """What the Load sample data button would load, for the button's tooltip."""
+    sset = samples.find(module)
+    if sset is None or not sset.path().exists():
+        return dict(available=False)
+    return dict(available=True, n=len(sset.specimens()), folder=sset.folder,
+                reference_pdf=sset.reference_pdf,
+                dimensions={k: float(v) for k, v in sset.dimensions.items()},
+                note=sset.note)
 
 
 @router.get("/ws/{module}/session")
@@ -280,6 +347,6 @@ def load_session(module: str, body: Dict[str, Any], request: Request):
             t = lib.get(lf.template_id) if lf.template_id else None
             lf.data = analysis.load_data(module, Path(lf.path), t)
         except Exception as e:
-            lf.error = f"Could not re-open {lf.name}: {e}"
+            lf.error = readers.describe_read_failure(lf.name, e)
         ws.files.append(lf)
     return _state(module, ws)

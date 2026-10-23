@@ -55,3 +55,9 @@ desktop.ini
 # ─── MATLAB scratch ───
 *.asv
 *.m~
+
+# Excel lock files (created beside an open workbook; not data)
+~$*
+
+# local dev-server config for the preview pane
+.claude/launch.json

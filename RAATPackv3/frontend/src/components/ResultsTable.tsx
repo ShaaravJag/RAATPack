@@ -7,9 +7,13 @@ export default function ResultsTable({ table, covWarn, selected, onSelect, hambu
     return (
       <div className="tw"><table className="t">
         <thead><tr><th>Specimen</th><th>Wheel</th>{cols.map(c => <th key={c.key} className="n">{c.label}</th>)}<th>SIP ratio</th></tr></thead>
-        <tbody>{table.rows.map(r => (["left", "right", "average"] as const).map((w, k) => (
+        <tbody>{table.rows.map(r => r.error || !r.left
+          ? <tr key={r.file_id} className={selected === r.file_id ? "sel" : ""} onClick={() => onSelect(r.file_id)}>
+              <td>{r.specimen_id}</td><td colSpan={cols.length + 2}><span className="chip crit">error</span> <span className="muted small">{r.error || "not analysed"}</span></td>
+            </tr>
+          : (["left", "right", "average"] as const).map((w, k) => (
           <tr key={r.file_id + w} className={(k === 2 ? "stat " : "") + (selected === r.file_id ? "sel" : "")} onClick={() => onSelect(r.file_id)}>
-            {k === 0 && <td rowSpan={3}>{r.specimen_id}</td>}
+            {k === 0 && <td rowSpan={3}>{r.specimen_id}{r.needs_pick && <><br /><span className="chip warn" title="The creep and stripping slopes were estimated automatically and have not been confirmed">pick needed</span></>}</td>}
             <td>{w === "average" ? "Average" : w === "left" ? "Left" : "Right"}{r[w]?.manual && <span className="chip info" style={{ marginLeft: 6 }}>manual</span>}{r[w]?.extrapolated && <span className="chip warn" style={{ marginLeft: 6 }} title="Rut at 20,000 passes is extrapolated beyond the last data point">extrapolated</span>}</td>
             {cols.map(c => <td key={c.key} className="n">{fmt(r[w]?.[c.key], c)}</td>)}
             <td className="n">{w === "average" ? "" : fmt(r[w]?.sip_ratio, { dp: 2 })}{w !== "average" && r[w]?.sip_ratio != null && r[w].sip_ratio < 2 && <span className="chip n" style={{ marginLeft: 6 }} title="Stripping/creep ratio below 2 — no inflection point reported (v2 rule)">&lt; 2</span>}</td>

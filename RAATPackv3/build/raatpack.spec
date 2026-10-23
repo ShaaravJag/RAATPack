@@ -15,6 +15,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_sub
 ROOT = Path(SPECPATH).resolve().parent          # .../RAATPackv3
 BACKEND = ROOT / "backend"
 DIST_FE = ROOT / "frontend" / "dist"
+SAMPLES = ROOT.parent / "Demo Data"             # the v2 demo set, shipped as sample data
 ICON = ROOT / "build" / "icon.ico"
 
 if not (DIST_FE / "index.html").exists():
@@ -25,11 +26,20 @@ if not (DIST_FE / "index.html").exists():
 
 # --- data shipped inside the bundle -------------------------------------------------
 # raatpack.config.settings.bundle_dir() resolves to sys._MEIPASS when frozen, and expects
-# these two paths relative to it.
+# these paths relative to it.
 datas = [
     (str(BACKEND / "data" / "templates"), "data/templates"),
     (str(DIST_FE), "frontend_dist"),
 ]
+
+# The sample data behind the "Load sample data" button, laid out exactly as the repository
+# holds it so raatpack.config.samples resolves the same folder names either way. The reference
+# PDFs travel with it: they are what v2 produced from these inputs.
+if SAMPLES.is_dir():
+    datas.append((str(SAMPLES), "data/samples"))
+else:
+    print(f"WARNING: sample data not found at {SAMPLES}; "
+          f"the Load sample data button will be disabled in this build.")
 binaries = []
 hiddenimports = collect_submodules("raatpack")
 

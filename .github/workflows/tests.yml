@@ -36,6 +36,13 @@ jobs:
         # module against the numbers printed in the Version 2 summary reports.
         run: python -m pytest -q
 
+      - name: Verify every bundled sample file
+        working-directory: RAATPackv3/backend
+        # Loads and analyses all 42 sample files through the application's own code path and
+        # prints a per-module table. It overlaps the suite above by design: this is the
+        # artefact a human reads when something breaks.
+        run: python -m scripts.verify_demo_data
+
   frontend:
     name: Frontend type-check and build
     runs-on: ubuntu-latest

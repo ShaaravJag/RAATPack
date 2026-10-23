@@ -16,8 +16,9 @@ export interface LoadedFile {
   picks: Record<string, number | null>; trim_x: number | null; error: string | null; n_points: number; preview: Preview;
   result?: Record<string, any>;
 }
-export interface Stat { mean: number | null; std: number | null; cov: number | null; n: number; values: number[] }
-export interface ResultsTable { columns: Field[]; rows: Record<string, any>[]; stats?: Record<string, Stat> }
+export interface Stat { mean: number | null; std: number | null; cov: number | null; n: number; values: number[]; labels?: string[]; provisional?: number }
+export interface ResultsTable { columns: Field[]; rows: Record<string, any>[]; stats?: Record<string, Stat>;
+  provisional?: (string | null)[]; errors?: { specimen_id: string | null; error: string | null }[] }
 export interface WorkspaceState {
   module: string; project: Record<string, string>; options: Record<string, any>; ran: boolean; files: LoadedFile[];
   table: ResultsTable | null; needs_pick: string[];
@@ -28,6 +29,10 @@ export interface CurvePayload {
   secondary: { title: string; x_label: string; y_label: string; series: Series[] } | null; log_x: boolean; log_y: boolean;
   shade?: { name: string; x: number[]; y: number[] }; shade_tail?: { name: string; x: number[]; y: number[] };
   needs_pick?: boolean; extrapolated_from?: number | null; x_max?: number;
+}
+export interface SampleInfo {
+  available: boolean; n?: number; folder?: string; reference_pdf?: string | null;
+  dimensions?: Record<string, number>; note?: string;
 }
 export interface Settings {
   institution: string; logo_path: string; technician: string; default_export_format: string; cov_warn_pct: number;

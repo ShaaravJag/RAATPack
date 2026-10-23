@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmt } from "../lib/api";
-import type { CurvePayload, LoadedFile, ModuleSpec, Settings, Template, WorkspaceState } from "../lib/types";
+import type { CurvePayload, LoadedFile, ModuleSpec, SampleInfo, Settings, Template, WorkspaceState } from "../lib/types";
 import Chart from "../components/Chart";
 import FileDrop from "../components/FileDrop";
 import SpecimenTable from "../components/SpecimenTable";
@@ -29,6 +29,9 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
   const [exportSel, setExportSel] = useState<Set<string>>(new Set());
   const [fmtSel, setFmtSel] = useState<string>(settings?.default_export_format || "xlsx");
   const [tails, setTails] = useState<string>("all");
+  const [proj, setProj] = useState<Record<string, string>>({});
+  const [filling, setFilling] = useState<string | null>(null);   // which column is being filled down
+  const [sample, setSample] = useState<SampleInfo | null>(null);
   const covWarn = settings?.cov_warn_pct ?? 15;
 
   const reload = useCallback(async () => { if (!id) return; const s = await api.ws(id); setSt(s); return s; }, [id]);
@@ -49,7 +52,28 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
   }, [spec?.template_kind, spec?.short]);
   useEffect(() => { if (st && sel && st.files.find(f => f.id === sel)?.result) api.curve(id, sel).then(setCurve).catch(() => setCurve(null)); else setCurve(null); }, [st, sel, id]);
   useEffect(() => { if (st && !sel && st.files.length) setSel(st.files[0].id); }, [st, sel]);
-  useEffect(() => { if (st) setExportSel(new Set(st.files.filter(f => f.result).map(f => f.id))); }, [st?.ran, st?.files.length]);
+  useEffect(() => { if (id) api.samplesInfo(id).then(setSample).catch(() => setSample({ available: false })); }, [id]);
+  // Keyed on *which* files have results, not how many: a re-run that repairs a specimen changes
+  // neither st.ran nor files.length, so the repaired specimen used to stay out of the report.
+  const analysedKey = (st?.files || []).filter(f => f.result && !f.error).map(f => f.id).join(",");
+  useEffect(() => {
+    if (!st) return;
+    const ok = st.files.filter(f => f.result && !f.error).map(f => f.id);
+    // These modules put one specimen per report in v2 and the backend still exports only the
+    // first file, so pre-selecting them all promised specimens that were silently dropped.
+    setExportSel(new Set(spec?.single_export ? ok.slice(0, 1) : ok));
+  }, [analysedKey, st?.ran, spec?.single_export]);
+
+  // Project fields are controlled so that Clear empties them and Load session shows what it
+  // restored. They were uncontrolled, which left the previous project's name on screen.
+  const projSig = JSON.stringify(st?.project ?? {});
+  useEffect(() => {
+    const seeded: Record<string, string> = {};
+    for (const [k] of PROJECT_FIELDS)
+      seeded[k] = st?.project?.[k] ?? (k === "institution" ? settings?.institution ?? ""
+                 : k === "technician" ? settings?.technician ?? "" : "");
+    setProj(seeded);
+  }, [projSig, settings?.institution, settings?.technician]);
 
   const files = st?.files || [];
   const ran = !!st?.ran;
@@ -66,8 +90,50 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
     setSt(s => s && ({ ...s, files: s.files.map(f => f.id === fid ? { ...f, ...(patch.specimen_id !== undefined ? { specimen_id: patch.specimen_id } : {}), inputs: { ...f.inputs, ...(patch.inputs || {}) } } : f) }));
     try { await api.updateFile(id, fid, patch); if (ran) reload(); } catch (e: any) { toast(e.message, "err"); }
   };
-  const fillAll = async (key: string, value: number | null) => { for (const f of files) await api.updateFile(id, f.id, { inputs: { [key]: value } }); reload(); };
-  const run = async () => { setBusy("Running analysis…"); try { const s = await api.run(id); setSt(s); if (s.needs_pick.length) toast(`${s.needs_pick.length} specimen(s) need a manual inflection point`, "err"); else toast("Analysis complete"); } catch (e: any) { toast(e.message, "err"); } finally { setBusy(null); } };
+  // One awaited request per specimen, so show progress rather than appearing to hang.
+  const fillAll = async (key: string, value: number | null) => {
+    setFilling(key);
+    try { for (const f of files) await api.updateFile(id, f.id, { inputs: { [key]: value } }); await reload(); }
+    catch (e: any) { toast(e.message, "err"); } finally { setFilling(null); }
+  };
+  // What the operator is asked to click, per module — "inflection point" was shown for Hamburg
+  // too, where the thing to pick is a pair of slopes.
+  const pickNoun = spec?.id === "hamburg" ? "slope pick" : "inflection point";
+
+  /** Dimensions that are required but blank, as labels rather than database keys.
+   *  Counts every file that actually read (n_points > 0), including ones whose last run failed
+   *  — those are precisely the specimens the operator still has to fill in. */
+  const missingInputs = () => {
+    const out: string[] = [];
+    const loaded = files.filter(f => f.n_points > 0);
+    for (const key of spec?.required_inputs || []) {
+      const n = loaded.filter(f => f.inputs?.[key] === null || f.inputs?.[key] === undefined).length;
+      if (n) out.push(`${n} specimen${n === 1 ? "" : "s"} missing ${spec?.specimen_inputs.find(i => i.key === key)?.label || key}`);
+    }
+    return out;
+  };
+
+  const run = async () => {
+    // Pre-flight: say what is missing once, up front, instead of failing row by row into
+    // tooltips that only appear on hover.
+    const missing = missingInputs();
+    if (missing.length) return toast(`Cannot run yet — ${missing.join("; ")}.`, "err");
+    setBusy("Running analysis…");
+    try {
+      const s = await api.run(id);
+      setSt(s);
+      const failed = s.files.filter(f => f.error).length;
+      const ok = s.files.filter(f => f.result && !f.error).length;
+      const picks = s.needs_pick.length;
+      if (failed && !ok) toast(`Analysis failed for all ${failed} specimen${failed === 1 ? "" : "s"} — see the messages above the results table.`, "err");
+      else if (failed) toast(`${ok} specimen${ok === 1 ? "" : "s"} analysed, ${failed} failed — see the messages above the results table.`, "err");
+      else if (picks) toast(`${ok} analysed — ${picks} need${picks === 1 ? "s" : ""} a manual ${pickNoun}.`, "err");
+      else toast(`Analysis complete — ${ok} specimen${ok === 1 ? "" : "s"}.`);
+      // Put the operator where the picking actually happens: the buttons live in the
+      // single-specimen chart, which is not the default view.
+      if (picks) { setSel(s.needs_pick[0]); setOverlayMode("single"); }
+    } catch (e: any) { toast(e.message, "err"); } finally { setBusy(null); }
+  };
   const saveProject = (k: string, v: string) => api.updateProject(id, { project: { [k]: v } }).then(setSt).catch(e => toast(e.message, "err"));
   const saveOption = (k: string, v: any) => api.updateProject(id, { options: { [k]: v } }).then(setSt).catch(e => toast(e.message, "err"));
   const doPick = async (x: number) => {
@@ -86,6 +152,17 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
   };
   const openRaw = async () => { if (!sel) return; setRaw(await api.raw(id, sel)); setRawOpen(true); };
   const saveSession = async () => { const snap = await api.session(id); const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(snap, null, 2)], { type: "application/json" })); a.download = `${spec.short}_session.json`; a.click(); };
+  const loadSamples = async () => {
+    // Replacing real work without warning would be rude; the endpoint resets the workspace.
+    if (files.length && !confirm(`Replace the ${files.length} file(s) currently loaded with the bundled sample data?`)) return;
+    setBusy("Loading sample data…");
+    try {
+      const s = await api.samples(id);
+      setSt(s);
+      setSel(s.files[0]?.id ?? null);
+      toast(s.sample_note || `Loaded ${s.files.length} sample specimen(s) — press Run analysis.`);
+    } catch (e: any) { toast(e.message, "err"); } finally { setBusy(null); }
+  };
   const loadSession = async (f: File) => { try { setSt(await api.loadSession(id, JSON.parse(await f.text()))); toast("Session restored — click Run to recompute"); } catch (e: any) { toast(e.message, "err"); } };
 
   const selFile = files.find(f => f.id === sel) || null;
@@ -106,7 +183,7 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
 
       <div className="panel"><div className="ph"><h3><span className="step">1</span>Project information <span className="muted small" style={{ fontWeight: 400 }}>(optional — fills the report header)</span></h3></div>
         <div className="pb grid3">
-          {PROJECT_FIELDS.map(([k, lab]) => <label className="f" key={k}><span>{lab}</span><input className="i" defaultValue={st?.project?.[k] ?? (k === "institution" ? settings?.institution ?? "" : k === "technician" ? settings?.technician ?? "" : "")} onBlur={e => saveProject(k, e.target.value)} /></label>)}
+          {PROJECT_FIELDS.map(([k, lab]) => <label className="f" key={k}><span>{lab}</span><input className="i" value={proj[k] ?? ""} onChange={e => setProj(pv => ({ ...pv, [k]: e.target.value }))} onBlur={e => saveProject(k, e.target.value)} /></label>)}
         </div>
       </div>
 
@@ -117,14 +194,25 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
           : <span className="tiny muted">Standard IPC Global workbook (sheet 2 “RawData”) — no template needed</span>}
       </div>
         <div className="pb col">
-          <FileDrop onFiles={addFiles} accept={spec.reader === "beam" || spec.reader === "xy" || spec.reader === "scb" || spec.reader === "four" ? ".xlsx,.csv" : ".xlsx"} disabled={!!busy} />
+          <FileDrop onFiles={addFiles} onIgnored={n => toast(`Skipped ${n.length === 1 ? n[0] : n.length + " files"} — Excel lock files and system files are not data.`, "err")} accept={spec.reader === "beam" || spec.reader === "xy" || spec.reader === "scb" || spec.reader === "four" ? ".xlsx,.csv" : ".xlsx"} disabled={!!busy} />
+          {sample?.available && <div className="row" style={{ justifyContent: "space-between" }}>
+            <span className="tiny muted">
+              No data to hand? {sample.n} sample specimen{sample.n === 1 ? "" : "s"} ship with RAAT-Pack
+              {sample.reference_pdf ? <>, together with the report v2 produced from them</> : null}.
+            </span>
+            <button className="btn sm" onClick={loadSamples} disabled={!!busy}
+              title={`Loads ${sample.n} specimen(s) from ${sample.folder}, with their dimensions already filled in`}>
+              Load sample data
+            </button>
+          </div>}
           {spec.supports_trim && <div className="tiny muted">The end of each SCB curve is trimmed automatically at 0.1 kN (v2 rule). Use “Trim beginning” on the chart if the curve has a seating region.</div>}
         </div>
       </div>
 
       <div className="panel"><div className="ph"><h3><span className="step">3</span>Specimens</h3>
         <div className="row"><span className="tiny muted">* required for the analysis</span><button className="btn primary" disabled={!files.length || !!busy} onClick={run}>{ran ? "Re-run" : "Run analysis"}</button></div></div>
-        <div className="pb"><SpecimenTable spec={spec} files={files} selected={sel} onSelect={setSel} onChange={patchFile} onRemove={async fid => setSt(await api.removeFile(id, fid))} onFill={fillAll} /></div>
+        {!!files.length && missingInputs().length > 0 && <div className="pb"><div className="alert warn">Not ready to run — {missingInputs().join("; ")}.</div></div>}
+        <div className="pb"><SpecimenTable spec={spec} files={files} selected={sel} onSelect={setSel} onChange={patchFile} onRemove={async fid => setSt(await api.removeFile(id, fid))} onFill={fillAll} filling={filling} onLoadSamples={sample?.available ? loadSamples : undefined} /></div>
       </div>
 
       {ran && st?.table && (
@@ -132,7 +220,13 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
           <div className="panel"><div className="ph"><h3><span className="step">4</span>Results</h3><div className="row"><button className="btn sm" onClick={openRaw} disabled={!sel}>Inspect data points</button></div></div>
             <div className="pb col">
               <ResultsTable table={st.table} covWarn={covWarn} selected={sel} onSelect={setSel} hamburg={spec.id === "hamburg"} />
-              {st.needs_pick.length > 0 && <div className="alert warn">Could not find an inflection point automatically for {st.needs_pick.length} specimen(s) — select the specimen, then use <b>Pick inflection point</b> on the chart (same as v2's prompt).</div>}
+              {files.filter(f => f.error).length > 0 && <div className="alert err col">
+                <b>{files.filter(f => f.error).length} specimen(s) could not be analysed:</b>
+                {files.filter(f => f.error).map(f => <div key={f.id}>· <b>{f.specimen_id || f.name}</b> — {f.error}</div>)}
+              </div>}
+              {st.needs_pick.length > 0 && (spec.id === "hamburg"
+                ? <div className="alert warn">Could not determine the creep and stripping slopes automatically for {st.needs_pick.length} specimen(s). The slopes shown are a provisional guess — select the specimen, switch the chart to <b>Selected + construction</b>, and use the <b>pick</b> buttons to set them, exactly as v2 asked.</div>
+                : <div className="alert warn">Could not find an inflection point automatically for {st.needs_pick.length} specimen(s) — select the specimen, switch the chart to <b>Selected + construction</b>, then use <b>Pick inflection point</b> (same as v2's prompt).</div>)}
               {spec.id === "cold_scb" && st.table.rows.some((r: any) => r.tail_success === false) && <div className="alert warn">Could not determine a tail for some specimens — their fracture energy is reported without the extrapolated tail.</div>}
             </div>
           </div>
@@ -150,9 +244,9 @@ export default function ModuleWorkspace({ mods, settings }: { mods: ModuleSpec[]
                 <>
                   <div className="row spread">
                     <div className="row"><b>{curve.name}</b>
-                      {spec.id === "scb" && (pickMode === "inflection" ? <button className="btn sm" onClick={() => setPickMode(null)}>Cancel</button> : <><button className="btn sm" onClick={() => setPickMode("inflection")}>Pick inflection point</button>{selFile?.picks?.inflection != null && <button className="btn sm ghost" onClick={() => clearPick("inflection")}>Use automatic</button>}</>)}
+                      {spec.supports_pick && spec.id !== "hamburg" && (pickMode === "inflection" ? <button className="btn sm" onClick={() => setPickMode(null)}>Cancel</button> : <><button className="btn sm" onClick={() => setPickMode("inflection")}>Pick inflection point</button>{selFile?.picks?.inflection != null && <button className="btn sm ghost" onClick={() => clearPick("inflection")}>Use automatic</button>}</>)}
                       {spec.supports_trim && (pickMode === "trim" ? <button className="btn sm" onClick={() => setPickMode(null)}>Cancel</button> : <><button className="btn sm" onClick={() => setPickMode("trim")}>Trim beginning</button>{selFile?.trim_x != null && <button className="btn sm ghost" onClick={() => clearPick("trim")}>Undo trim ({selFile.trim_x.toFixed(3)} mm)</button>}</>)}
-                      {spec.id === "hamburg" && ["strip_left", "creep_left", "strip_right", "creep_right"].map(k => <button key={k} className={"btn sm" + (pickMode === k ? " primary" : "")} onClick={() => setPickMode(pickMode === k ? null : k)}>{k.replace("_", " ")}</button>)}
+                      {spec.id === "hamburg" && ([["creep_left", "Pick left creep"], ["strip_left", "Pick left stripping"], ["creep_right", "Pick right creep"], ["strip_right", "Pick right stripping"]] as [string, string][]).map(([k, lab]) => <button key={k} className={"btn sm" + (pickMode === k ? " primary" : "") + (selFile?.picks?.[k] != null ? " ghost" : "")} onClick={() => setPickMode(pickMode === k ? null : k)} title={pickHint[k]}>{lab}{selFile?.picks?.[k] != null ? " ✓" : ""}</button>)}
                       {spec.id === "hamburg" && Object.keys(selFile?.picks || {}).length > 0 && <button className="btn sm ghost" onClick={async () => { await api.updateFile(id, sel!, { clear_picks: true }); await reload(); }}>Use automatic slopes</button>}
                     </div>
                     <div className="legendtoggle">{[...curve.series, ...curve.overlays].map(s => <span key={s.name} className={"toggle" + (hidden.has(s.name) ? "" : " on")} onClick={() => toggle(s.name)}>{s.name}</span>)}</div>
