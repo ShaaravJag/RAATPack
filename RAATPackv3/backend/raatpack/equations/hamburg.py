@@ -53,6 +53,7 @@ class WheelResult:
     strip_line_y: np.ndarray
     extrapolated: bool               # True if 20,000 passes lies beyond the data
     manual: bool
+    needs_pick: bool = False         # True: v2 would have asked the operator to click the slopes
 
 
 def _secant(poly, x0):
@@ -81,19 +82,37 @@ def analyse_wheel(cycles: np.ndarray, depth: np.ndarray,
     Ss, Sint = _secant(poly, Ns)
 
     # creep location: real root of the 2nd derivative more than 1 pass before Ns with the largest 1st derivative
+    needs_pick = False
     if creep_pick is None:
         r = ml.real_roots_matlab(ml.roots(d2p))
         r = r[r != 0]
         r = r[(r - Ns) < -CREEP_MIN_GAP]
         if r.size == 0:
-            raise ValueError("No creep-slope location found before the stripping location — pick the slopes manually.")
-        Nc = float(r[np.argmax(ml.polyval(dp, r))])
+            # v2 put up "Are the slopes okay? -> No" and waited for the operator to click. Raising
+            # here instead left the UI with nothing to draw and no way forward, because the chart
+            # and the pick buttons only render once a result exists. Mirror what SCB does for its
+            # inflection point: answer provisionally and flag it.
+            #
+            # The automatic rule picks the second-derivative root with the largest first
+            # derivative; with no root to choose from, the direct analogue is the maximum of the
+            # first derivative over the same interval, which is what the operator is eyeballing.
+            hi = max(Ns - CREEP_MIN_GAP, float(cycles[0]) + CREEP_MIN_GAP)
+            Nc = ml.fminbnd(lambda x: -ml.polyval(dp, x), float(cycles[0]), hi)
+            needs_pick = True
+        else:
+            Nc = float(r[np.argmax(ml.polyval(dp, r))])
     else:
         Nc = float(creep_pick)
     Cs, Cint = _secant(poly, Nc)
 
     # ---- reported quantities -------------------------------------------------
-    sip_x = (Sint - Cint) / (Cs - Ss)
+    # MATLAB evaluates x/0 to Inf rather than raising, so divide the same way instead of letting
+    # Python throw. Parallel creep and stripping secants have no intersection — a perfectly
+    # linear rut curve is the simple case — and that is precisely when v2 asked the operator to
+    # pick the slopes by hand, so flag it rather than dying with a ZeroDivisionError.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sip_x = float(np.divide(Sint - Cint, Cs - Ss))
+        ratio = float(np.divide(Ss, Cs))
     sip_y = Ss * sip_x + Sint
     if manual:
         max_rut = float(np.max(-d))                  # v2 manual path: max of measured depth
@@ -101,16 +120,28 @@ def analyse_wheel(cycles: np.ndarray, depth: np.ndarray,
         max_rut = float(-ml.polyval(poly, MAX_RUT_AT_PASSES))
     stripping_slope = Ss
     creep_slope = Cs
-    ratio = stripping_slope / creep_slope
-    sip = sip_x if ratio >= SIP_RATIO_MIN else None
+    degenerate = not (np.isfinite(sip_x) and np.isfinite(ratio))
+    sip = sip_x if (not degenerate and ratio >= SIP_RATIO_MIN) else None
+    if degenerate:
+        needs_pick = True
+    # An automatic location is a root of the 6th-order fit's second derivative, which is under no
+    # obligation to land inside the test: a near-quadratic curve can put it millions of passes
+    # away. The reported numbers stay exactly as v2 computed them — this only asks the operator
+    # to confirm a location that cannot be read off the chart.
+    lo, hi = float(cycles[0]), N
+    if (strip_pick is None and not lo <= Ns <= hi) or (creep_pick is None and not lo <= Nc <= hi):
+        needs_pick = True
     # ---------------------------------------------------------------------------
 
-    Sx = np.linspace(sip_x - LINE_EXTENT, N, 100)
-    Sy = Ss * (Sx - sip_x) + sip_y
-    Cx = np.linspace(0, sip_x + LINE_EXTENT, 100)
-    Cy = Cs * (Cx - sip_x) + sip_y
+    # Anchor the drawn slope lines on the data when the intersection is not a real point, so the
+    # chart still renders something the operator can click on.
+    ax, ay = (sip_x, sip_y) if not degenerate else (lo, float(ml.polyval(poly, lo)))
+    Sx = np.linspace(ax - LINE_EXTENT, N, 100)
+    Sy = Ss * (Sx - ax) + ay
+    Cx = np.linspace(0, ax + LINE_EXTENT, 100)
+    Cy = Cs * (Cx - ax) + ay
     return WheelResult(max_rut, -creep_slope, -stripping_slope, float(ratio), sip, float(sip_x), float(sip_y),
-                       Ns, Nc, poly, Cx, -Cy, Sx, -Sy, bool(N < MAX_RUT_AT_PASSES), manual)
+                       Ns, Nc, poly, Cx, -Cy, Sx, -Sy, bool(N < MAX_RUT_AT_PASSES), manual, needs_pick)
 
 
 @dataclass
@@ -122,6 +153,7 @@ class HamburgResult:
     avg_creep_slope: float
     avg_stripping_slope: float
     avg_sip_cycles: Optional[float]
+    needs_pick: bool = False         # either wheel's slopes were guessed and want confirming
 
 
 def combine(left: WheelResult, right: WheelResult) -> HamburgResult:
@@ -130,7 +162,8 @@ def combine(left: WheelResult, right: WheelResult) -> HamburgResult:
                          (left.max_rut_mm + right.max_rut_mm) / 2.0,
                          (left.creep_slope + right.creep_slope) / 2.0,
                          (left.stripping_slope + right.stripping_slope) / 2.0,
-                         (sum(sips) / len(sips)) if sips else None)
+                         (sum(sips) / len(sips)) if sips else None,
+                         bool(left.needs_pick or right.needs_pick))
 
 
 def analyse(cycles_left, left, cycles_right, right,

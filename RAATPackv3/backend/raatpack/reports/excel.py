@@ -8,6 +8,7 @@ it (so downstream spreadsheets that referenced 'Sample Data'!A3:B… keep workin
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import List, Optional
 
@@ -19,6 +20,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from .spec import ReportSpec, Curve, fmt_value
+
+LOG = logging.getLogger(__name__)
 
 THIN = Side(style="thin", color="999999")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
@@ -98,8 +101,10 @@ def _header(ws, spec: ReportSpec, title_col: int, ncols: int):
             scale = min(1.0, 96.0 / max(img.height, 1))
             img.width, img.height = img.width * scale, img.height * scale
             ws.add_image(img, "A1")
-        except Exception:
-            pass
+        except Exception as e:
+            # Most often a missing Pillow, which openpyxl needs to embed an image. The report is
+            # still correct without the logo, so carry on — but say so rather than vanishing.
+            LOG.warning("logo %r could not be placed in the report: %s", spec.logo_path, e)
 
 
 def _table(ws, spec: ReportSpec, top: int):

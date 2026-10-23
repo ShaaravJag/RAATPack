@@ -11,14 +11,30 @@ interface Props {
 }
 const PALETTE = ["#1f4e79", "#c00000", "#2e7d32", "#ed7d31", "#7030a0", "#00838f", "#8d6e63", "#455a64", "#c2185b", "#5d4037", "#0288d1", "#689f38"];
 
-// Debug/automation hook: lets you export any on-screen chart from the console, e.g.
-//   Plotly.toImage(document.querySelector('.chartbox'), {format:'png', width:1100, height:620, scale:2})
-(window as any).Plotly = Plotly;
-
 function css(name: string) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+const sigOf = (list: Series[] | undefined) =>
+  (list || []).map(s => [s.name, s.style, s.color, s.x?.length, s.x?.[0], s.x?.[(s.x?.length || 1) - 1],
+                         s.y?.[0], s.y?.[(s.y?.length || 1) - 1]].join(",")).join("|");
 
 export default function Chart(p: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  // Keep the latest click handler reachable without making it an effect dependency: it is a new
+  // closure on every render, and re-running the effect is what used to reset the zoom.
+  const onClickRef = useRef(p.onClick);
+  onClickRef.current = p.onClick;
+  const lastSig = useRef<string>("");
+
+  // Everything the drawing actually depends on, as a string. Identity-unstable props (arrays
+  // rebuilt each render) collapse to the same signature when nothing material changed.
+  const sig = [
+    sigOf(p.series), sigOf(p.overlays), sigOf(p.shades as any), sigOf(p.y2?.series),
+    p.xLabel, p.yLabel, p.title, p.logX, p.logY, p.height,
+    [...(p.hidden || [])].sort().join(","),
+    JSON.stringify(p.xRange), JSON.stringify(p.yRange),
+    JSON.stringify(p.vlines), JSON.stringify(p.bands), p.y2?.label, !!p.onClick,
+  ].join("~");
+
   useEffect(() => {
     const el = ref.current; if (!el) return;
     const ink = css("--ink"), muted = css("--muted"), grid = css("--plot-grid"), bg = css("--plot-bg");
@@ -53,11 +69,25 @@ export default function Chart(p: Props) {
     if (p.xRange) layout.xaxis.range = p.logX ? p.xRange.map(v => Math.log10(v)) : p.xRange;
     if (p.yRange) layout.yaxis.range = p.logY ? p.yRange.map(v => Math.log10(v)) : p.yRange;
     if (p.y2) layout.yaxis2 = { title: { text: p.y2.label }, overlaying: "y", side: "right", gridcolor: "transparent" };
+
+    // Hold whatever the user zoomed to. Plotly clears autorange on the axis when they zoom, so
+    // that flag is the record of "they chose this view" — worth keeping while they line up a
+    // pick, and worth dropping as soon as the data underneath genuinely changes.
+    const prev: any = (el as any).layout;
+    if (prev && sig === lastSig.current) {
+      if (!p.xRange && prev.xaxis?.autorange === false && prev.xaxis?.range)
+        Object.assign(layout.xaxis, { range: [...prev.xaxis.range], autorange: false });
+      if (!p.yRange && prev.yaxis?.autorange === false && prev.yaxis?.range)
+        Object.assign(layout.yaxis, { range: [...prev.yaxis.range], autorange: false });
+    }
+    lastSig.current = sig;
+
     Plotly.react(el, traces, layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["select2d", "lasso2d"] });
-    const handler = (ev: any) => { const pt = ev?.points?.[0]; if (pt && p.onClick) p.onClick(Number(pt.x), Number(pt.y)); };
+    const handler = (ev: any) => { const pt = ev?.points?.[0]; if (pt) onClickRef.current?.(Number(pt.x), Number(pt.y)); };
     (el as any).on?.("plotly_click", handler);
     return () => { (el as any).removeListener?.("plotly_click", handler); };
-  }, [p.series, p.overlays, p.shades, p.xLabel, p.yLabel, p.logX, p.logY, p.height, p.hidden, p.xRange, p.yRange, p.vlines, p.bands, p.y2, p.title, p.onClick]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
   useEffect(() => () => { if (ref.current) Plotly.purge(ref.current); }, []);
   return <div className="chartbox" ref={ref} style={{ cursor: p.onClick ? "crosshair" : "default" }} />;
 }

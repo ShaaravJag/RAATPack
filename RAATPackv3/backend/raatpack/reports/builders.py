@@ -30,6 +30,21 @@ def build(module_id: str, files, project: Dict[str, str], options: Dict[str, Any
     fn = _BUILDERS.get(module_id, _build_table)
     spec = fn(m, files, project, options)
     spec.logo_path = logo_path
+    # A specimen whose slopes or inflection point were guessed rather than confirmed is still
+    # averaged in with the rest, so the report has to say so — on screen it carries a "pick
+    # needed" badge, but the exported file used to look identical to a fully confirmed run.
+    prov = [lf.specimen_id or lf.name for lf in files
+            if lf.result is not None and getattr(lf.result, "needs_pick", False)]
+    if prov:
+        spec.notes.append(
+            "PROVISIONAL: the automatic construction could not be determined for "
+            + ", ".join(prov)
+            + ". The values shown for these specimens come from an automatic estimate that has "
+              "not been confirmed by the operator, and they are included in the statistics.")
+    # And one that failed is absent from the table entirely, which the statistics do not reveal.
+    bad = [lf.specimen_id or lf.name for lf in files if lf.error]
+    if bad:
+        spec.notes.append("Not included — these specimens could not be analysed: " + ", ".join(bad) + ".")
     if options.get("passfail") not in (None, ""):
         try:
             spec.passfail = float(options["passfail"])

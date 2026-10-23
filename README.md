@@ -14,7 +14,7 @@ Version 2 source it was ported from and the demo data used to verify the port.
 | | |
 |---|---|
 | **Modules** | APA · Beam Fatigue · Bond Strength · Cold SCB · DCT · Dynamic Modulus · Hamburg · HT-IDT · IDEAL-CT · Intermediate SCB |
-| **Stack** | Python 3.8+ (NumPy/SciPy/FastAPI) · React + TypeScript · packaged for Windows with PyInstaller + pywebview |
+| **Stack** | Python 3.8+ (NumPy/SciPy/FastAPI) · React + TypeScript · packaged with PyInstaller + pywebview (Windows `.exe`, macOS `.app`) |
 | **Requires** | No MATLAB Runtime. No Excel. |
 | **Status** | All ten modules ported and verified against the Version 2 reports. Desktop `.exe` build script written, not yet built. |
 
@@ -85,6 +85,24 @@ On Windows with Python 3.11+ and Node 18+:
 Ship the whole `dist\RAATPack` folder. It uses the Edge WebView2 runtime already present on
 Windows 10/11 — nothing else to install.
 
+### A Mac build, for demonstrating
+
+On a Mac with Python 3.11+ and Node 18+:
+
+```bash
+cd RAATPackv3/backend && pip install -e ".[desktop]"
+cd ../build && ./build_mac.sh            # -> build/dist/RAATPack.app
+```
+
+`build_mac.sh` checks its prerequisites first, builds the interface, generates the icon, freezes
+the app, and then smoke-tests the frozen bundle — it loads the sample data, runs an analysis and
+exports all four formats from inside the `.app`, which is where missing hidden imports actually
+surface.
+
+The app is **not signed or notarised**, so the first launch on another Mac needs right-click →
+**Open** once to get past Gatekeeper. It is meant for demonstrating the toolpack; the lab's own
+copies are the Windows build above.
+
 ---
 
 ## Repository layout
@@ -104,7 +122,7 @@ RAATPackv3/                  Version 3 — the current software
     data/templates/          23 built-in file templates (the lab's v2 library)
     tests/                   golden-value regression suite + fixtures
   frontend/src/              React + TypeScript interface
-  build/                     PyInstaller spec, Windows build script
+  build/                     PyInstaller specs (Windows, macOS), build scripts, icon generator
 
 Demo Data/                   Machine files + the Version 2 report each produced (12 MB)
 RAAT Configs/                The lab's original machine templates

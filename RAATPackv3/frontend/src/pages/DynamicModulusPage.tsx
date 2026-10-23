@@ -26,10 +26,20 @@ export default function DynamicModulusPage({ settings }: { settings: Settings | 
   const [tsrc, setTsrc] = useState("target");
   const [view, setView] = useState<string>("ea");
   const [dataView, setDataView] = useState<number>(-1);   // -1 average, 0..2 replicate
-  const reload = () => api.dm().then(setSt).catch(e => toast(String(e), "err"));
+  const reload = () => api.dm().then(setSt).catch(e => toast(e?.message || String(e), "err"));
   useEffect(() => { reload(); }, []);
   useEffect(() => { if (st?.assignment) { setSlots(st.assignment.slots); setTemps(st.assignment.target_temps_c); } if (st?.volumetrics && vol.Gmm === "") setVol({ Gmm: String(st.volumetrics.Gmm), Gsb: String(st.volumetrics.Gsb), air_voids: String(st.volumetrics.air_voids), ac_pct: String(st.volumetrics.ac_pct) }); }, [st?.assignment, st?.volumetrics]);
   const wrap = async (label: string, fn: () => Promise<any>) => { setBusy(label); try { const r = await fn(); setSt(r); return r; } catch (e: any) { toast(e.message, "err"); } finally { setBusy(null); } };
+  /** Load the bundled sample set, which arrives already through steps 1-4. */
+  const loadSamples = async () => {
+    if ((st?.files || []).length && !confirm("Replace the current Dynamic Modulus session with the bundled sample data?")) return;
+    const r = await wrap("Loading sample data…", () => api.dmSamples());
+    if (!r) return;
+    // mirror the server's volumetrics into the form, which is local state
+    if (r.volumetrics) setVol({ Gmm: String(r.volumetrics.Gmm), Gsb: String(r.volumetrics.Gsb), air_voids: String(r.volumetrics.air_voids), ac_pct: String(r.volumetrics.ac_pct) });
+    if (r.errors?.length) toast(r.errors.join("; "), "err");
+    else toast(r.sample_note || "Sample data loaded — choose the master curves and Run.");
+  };
   const files: any[] = st?.files || [];
   const curves: Record<string, any> = st?.curves || {};
   const cur = curves[view];
@@ -52,7 +62,9 @@ export default function DynamicModulusPage({ settings }: { settings: Settings | 
   return (
     <div className="page">
       <div className="pagehead"><div><div className="eyebrow">AASHTO T342 · R62 · R84</div><h1>Dynamic Modulus</h1><p>Build master curves from AMPT summary files. Steps mirror v2: volumetrics → binder → AMPT data → optional Witczak / Hirsch → master curves → export.</p></div>
-        <div className="row"><button className="btn sm danger" onClick={async () => { if (confirm("Clear the Dynamic Modulus session?")) setSt(await api.dmReset()); }}>Clear</button></div></div>
+        <div className="row">
+          <button className="btn sm" onClick={loadSamples} disabled={!!busy} title="Loads the nine Winslow AMPT files, their volumetrics and the binder G* workbook that ship with RAAT-Pack">Load sample data</button>
+          <button className="btn sm danger" onClick={async () => { if (confirm("Clear the Dynamic Modulus session?")) setSt(await api.dmReset()); }}>Clear</button></div></div>
       {busy && <div className="alert info row"><span className="spin" /> {busy}</div>}
 
       <div className="panel"><div className="ph"><h3><span className="step">0</span>Project information</h3></div>
@@ -82,7 +94,8 @@ export default function DynamicModulusPage({ settings }: { settings: Settings | 
 
       <div className="panel"><div className="ph"><h3><span className="step">3</span>AMPT summary files</h3><span className="tiny muted">the “…Sum.csv” files, one per specimen per temperature</span></div>
         <div className="pb col">
-          <FileDrop onFiles={fs => wrap("Reading AMPT files…", async () => { const r = await api.dmFiles(fs); if (r.errors?.length) toast(r.errors.join("; "), "err"); return r; })} accept=".csv" label="Drop the AMPT *Sum.csv files here" />
+          {!files.length && <div className="tiny muted">No data to hand? <button className="btn sm" onClick={loadSamples} disabled={!!busy}>Load sample data</button> brings in nine AMPT summary files, their volumetrics and the binder G* workbook.</div>}
+          <FileDrop onIgnored={n => toast(`Skipped ${n.length} non-data file(s) (Excel lock or system files).`, "err")} onFiles={fs => wrap("Reading AMPT files…", async () => { const r = await api.dmFiles(fs); if (r.errors?.length) toast(r.errors.join("; "), "err"); return r; })} accept=".csv" label="Drop the AMPT *Sum.csv files here" />
           {files.length > 0 && <>
             <div className="tw"><table className="t"><thead><tr><th>File</th><th>Identification</th><th className="n">Frequencies</th><th className="n">Temp in file (°C)</th><th></th></tr></thead>
               <tbody>{files.map(f => <tr key={f.id}><td>{f.name}</td><td className="mono">{f.identification}</td><td className="n">{f.n}</td><td className="n">{f.target_temp_c_file ?? "—"}</td><td><button className="btn sm ghost danger" onClick={() => wrap("…", () => api.dmRemoveFile(f.id))}>✕</button></td></tr>)}</tbody></table></div>

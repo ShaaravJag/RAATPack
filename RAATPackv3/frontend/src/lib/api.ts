@@ -1,6 +1,24 @@
-import type { CurvePayload, LoadedFile, ModuleSpec, Settings, Template, WorkspaceState } from "./types";
+import type { CurvePayload, LoadedFile, ModuleSpec, SampleInfo, Settings, Template, WorkspaceState } from "./types";
 
 const BASE = "/api";
+
+/** Raised when the request never reached the analysis engine, as opposed to the engine saying
+ *  no. fetch rejects with a TypeError for that, which is indistinguishable from a bug unless we
+ *  label it — and the two want completely different things on screen. */
+export const ENGINE_UNREACHABLE = "raatpack:engine-unreachable";
+
+async function call(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    const res = await fetch(input, init);
+    window.dispatchEvent(new CustomEvent(ENGINE_UNREACHABLE, { detail: null }));   // it answered
+    return res;
+  } catch (e: any) {
+    // The engine is a child process of the desktop window; if it dies mid-session every later
+    // request fails this way, and without this the app only ever toasted "Failed to fetch".
+    window.dispatchEvent(new CustomEvent(ENGINE_UNREACHABLE, { detail: e?.message || String(e) }));
+    throw new Error("The analysis engine is not responding. It may have stopped — close RAAT-Pack and open it again.");
+  }
+}
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -10,10 +28,10 @@ async function j<T>(res: Response): Promise<T> {
   }
   return res.json();
 }
-const get = <T,>(u: string) => fetch(BASE + u).then(j<T>);
+const get = <T,>(u: string) => call(BASE + u).then(j<T>);
 const send = <T,>(m: string, u: string, body?: any) =>
-  fetch(BASE + u, { method: m, headers: body === undefined ? {} : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }).then(j<T>);
-const form = <T,>(m: string, u: string, fd: FormData) => fetch(BASE + u, { method: m, body: fd }).then(j<T>);
+  call(BASE + u, { method: m, headers: body === undefined ? {} : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }).then(j<T>);
+const form = <T,>(m: string, u: string, fd: FormData) => call(BASE + u, { method: m, body: fd }).then(j<T>);
 
 export async function download(u: string, body: any, fallbackName = "export") {
   const res = await fetch(BASE + u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -60,9 +78,12 @@ export const api = {
   exportReport: (m: string, body: { format: string; file_ids?: string[]; options?: any }) => download(`/ws/${m}/export`, body),
   session: (m: string) => get<any>(`/ws/${m}/session`),
   loadSession: (m: string, snap: any) => send<WorkspaceState>("POST", `/ws/${m}/session`, snap),
+  samples: (m: string) => send<WorkspaceState & { sample_note?: string }>("POST", `/ws/${m}/samples`),
+  samplesInfo: (m: string) => get<SampleInfo>(`/ws/${m}/samples`),
   // dynamic modulus
   dm: () => get<any>("/dm"),
   dmReset: () => send<any>("POST", "/dm/reset"),
+  dmSamples: () => send<any>("POST", "/dm/samples"),
   dmProject: (project: Record<string, string>) => send<any>("PUT", "/dm/project", { project }),
   dmVolumetrics: (b: any) => send<any>("POST", "/dm/volumetrics", b),
   dmBinder: (kind: string, body: any) => send<any>("POST", `/dm/binder/${kind}`, body),

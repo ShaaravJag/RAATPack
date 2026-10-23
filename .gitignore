@@ -33,6 +33,7 @@ RAATPackv3/frontend/dist/
 # ─── PyInstaller output ───
 RAATPackv3/build/build/
 RAATPackv3/build/dist/
+RAATPackv3/build/icon.iconset/
 *.spec.bak
 
 # ─── Application runtime data (per-user; never committed) ───
@@ -55,3 +56,9 @@ desktop.ini
 # ─── MATLAB scratch ───
 *.asv
 *.m~
+
+# Excel lock files (created beside an open workbook; not data)
+~$*
+
+# local dev-server config for the preview pane
+.claude/launch.json

@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from ..config import settings as cfg
+from ..config import samples, settings as cfg
 from ..equations import dynamic_modulus as dm
 from ..equations._base import clean
 from ..io import ampt
@@ -76,6 +76,88 @@ def get_state(request: Request):
 def reset(request: Request):
     request.app.state.store.dm = {}
     return _public(_st(request))
+
+
+@router.post("/samples")
+def load_samples(request: Request):
+    """Load the bundled Dynamic Modulus sample set and walk it through the first four steps.
+
+    E* is the one module with a multi-step workflow rather than a specimen table, so loading
+    samples has to do what the operator would: enter the volumetrics, read the nine AMPT
+    summaries, assign them to replicate and temperature, build the averaged table, and read the
+    binder G* workbook. The curves are left for the user to choose and run.
+    """
+    sset = samples.find("dynamic_modulus")
+    if sset is None or not sset.path().exists():
+        raise HTTPException(404, "The sample data is not installed with this copy of RAAT-Pack.")
+
+    request.app.state.store.dm = {}
+    st = _st(request)
+    st["project"] = {"project": "RAAT-Pack sample data - E*", "mix_type": "", "technician": ""}
+
+    # 1. volumetrics -> E*max (the Hirsch step needs VMA and VFA)
+    d = sset.dimensions
+    v = dm.emax_hirsch(d["Gmm"], d["Gsb"], d["air_voids"], d["ac_pct"])
+    st["volumetrics"] = clean(vars(v))
+
+    # 2. the AMPT summaries, grouped by replicate with the temperature read from the file name
+    by_rep: Dict[str, List[Any]] = {}
+    errors: List[str] = []
+    for sf in sset.specimens():
+        path = sset.file_path(sf)
+        if not path.exists():
+            errors.append(f"{sf.name}: missing from the install")
+            continue
+        try:
+            summary = ampt.read_ampt_summary(path)
+        except Exception as e:
+            errors.append(f"{sf.name}: {e}")
+            continue
+        guess = ampt.guess_temperature_from_name(Path(sf.name).name)
+        fid = new_id()
+        st["files"][fid] = dict(name=Path(sf.name).name, path=str(path), summary=summary, guess_c=guess)
+        by_rep.setdefault(sf.specimen_id, []).append((guess, fid))
+    if not st["files"]:
+        raise HTTPException(404, "No AMPT sample files could be read. " + "; ".join(errors))
+
+    # 3. assignment: one row per replicate, columns in ascending temperature
+    temps_sorted = sorted({t for pairs in by_rep.values() for t, _ in pairs if t is not None})
+    slots, target_temps = [], []
+    for rep in sorted(by_rep):
+        by_temp = {t: fid for t, fid in by_rep[rep]}
+        slots.append([by_temp.get(t) for t in temps_sorted])
+        target_temps.append([float(t) for t in temps_sorted])
+
+    # 4. the averaged table
+    try:
+        reps = [[st["files"][fid]["summary"] if fid else None for fid in row] for row in slots]
+        st["avg"] = dm.build_average_table(reps, target_temps)
+        st["assignment"] = dict(slots=slots, target_temps_c=target_temps)
+    except Exception as e:
+        raise HTTPException(400, f"Could not build the sample data table: {e}")
+
+    # 5. the binder G* workbook, which is an input in its own right rather than a specimen
+    for sf in sset.files:
+        if sf.role != samples.HIRSCH_INPUT:
+            continue
+        path = sset.file_path(sf)
+        if not path.exists():
+            errors.append(f"{sf.name}: missing from the install")
+            continue
+        try:
+            h = ampt.read_hirsch_input(path)
+            st["hirsch"] = dict(temps_f=h.temps_f, frequency=h.frequency, g_star=h.g_star_psi,
+                                E=dm.hirsch_from_gstar(v.VMA, v.VFA, h.g_star_psi),
+                                rad_per_s=False, name=Path(sf.name).name)
+        except Exception as e:
+            errors.append(f"{sf.name}: {e}")
+
+    out = _public(st)
+    out["errors"] = errors
+    out["sample_note"] = (f"Loaded {len(st['files'])} AMPT summary files as "
+                          f"{len(slots)} replicates at {len(temps_sorted)} temperatures, with "
+                          f"volumetrics and the binder G* file. Choose the master curves and Run.")
+    return out
 
 
 class ProjectIn(BaseModel):

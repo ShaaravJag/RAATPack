@@ -5,9 +5,17 @@ import { useToast } from "../components/Toast";
 
 export default function SettingsPage({ onChange }: { onChange: (s: Settings) => void }) {
   const [s, setS] = useState<Settings | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   const toast = useToast();
-  useEffect(() => { api.settings().then(setS); }, []);
-  if (!s) return <div className="page"><span className="spin" /></div>;
+  const load = () => { setErr(null); api.settings().then(setS).catch(e => setErr(e?.message || String(e))); };
+  useEffect(load, []);
+  if (err) return (
+    <div className="page"><div className="alert err col">
+      <b>Could not load the settings.</b>
+      <span className="tiny">{err}</span>
+      <div><button className="btn sm" onClick={load}>Try again</button></div>
+    </div></div>);
+  if (!s) return <div className="page"><div className="row"><span className="spin" /> Loading settings…</div></div>;
   const save = async (patch: Partial<Settings>) => {
     try { const n = await api.saveSettings(patch); setS(n); onChange(n); toast("Settings saved"); } catch (e: any) { toast(e.message, "err"); }
   };

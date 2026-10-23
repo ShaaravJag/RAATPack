@@ -38,6 +38,39 @@ def _to_float(v) -> float:
         return math.nan
 
 
+
+class NotADataFile(ValueError):
+    """The file is not test data at all (an Excel lock file, OS metadata)."""
+
+
+def describe_read_failure(name: str, exc: BaseException) -> str:
+    """A cause an engineer can act on, instead of the raw exception text.
+
+    The default here used to be e.g. "Could not read file: BadZipFile: File is not a zip file",
+    which tells a lab technician nothing about what to do next.
+    """
+    import zipfile
+
+    if isinstance(exc, NotADataFile):
+        return str(exc)
+    if isinstance(exc, zipfile.BadZipFile):
+        return (f"{name} is not a readable Excel workbook. If it is a CSV that was renamed .xlsx, "
+                f"rename it back to .csv; if Excel still has it open, close the file and try again; "
+                f"otherwise re-save it from Excel as .xlsx.")
+    if isinstance(exc, PermissionError):
+        return f"{name} is locked by another program. Close it in Excel and try again."
+    if isinstance(exc, FileNotFoundError):
+        return f"{name} is no longer where it was — it may have been moved, renamed or deleted."
+    if isinstance(exc, UnicodeDecodeError):
+        return (f"{name} is not readable as text. A .csv or .txt file is expected here; if this is "
+                f"a spreadsheet, save it as .xlsx or .csv first.")
+    if isinstance(exc, (IndexError, KeyError)):
+        return (f"{name} does not have the columns this template expects. Check the template's "
+                f"column numbers and data-start row against the file.")
+    if isinstance(exc, ValueError):
+        return f"{name} could not be read: {exc}"
+    return f"{name} could not be read ({type(exc).__name__}: {exc})."
+
 def load_columns(path: Path, columns: Sequence[int], data_start: int, data_end: Optional[int],
                  sheet: int = 1, delimiter: str = ",") -> np.ndarray:
     """Return an (n, len(columns)) float matrix of the requested 1-based columns, from row

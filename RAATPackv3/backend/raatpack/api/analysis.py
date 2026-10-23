@@ -14,6 +14,7 @@ from ..equations import ideal_ct, scb, cold_scb, dct, htidt, bond, apa, hamburg,
 from ..equations._base import clean
 from ..io import readers, ipc
 from ..io.templates import Template
+from ..config import samples
 from ..modules import registry
 from ..numerics.matlab import excel_stats
 from .state import LoadedFile, Workspace
@@ -27,6 +28,12 @@ MAX_PREVIEW_POINTS = 800
 
 def load_data(module_id: str, path: Path, template: Optional[Template]):
     m = registry.get(module_id)
+    if samples.is_ignored(Path(path).name):
+        # Excel leaves "~$Book.xlsx" lock files beside open workbooks; they are a few hundred
+        # bytes of metadata, not a zip, so reading one raises BadZipFile. Refuse by name instead.
+        raise readers.NotADataFile(
+            f"{Path(path).name} is not test data — it is the temporary lock file Excel creates "
+            f"while a workbook is open. Add the workbook itself instead.")
     if m.reader == registry.READER_XY:
         return readers.read_xy(path, template)
     if m.reader == registry.READER_SCB:
@@ -90,10 +97,14 @@ def file_summary(module_id: str, lf: LoadedFile) -> Dict[str, Any]:
 # Running
 # ---------------------------------------------------------------------------
 
-def _req(lf: LoadedFile, keys: List[str]):
+def _req(lf: LoadedFile, keys: List[str], labels: Optional[Dict[str, str]] = None):
     missing = [k for k in keys if lf.inputs.get(k) in (None, "")]
     if missing:
-        raise ValueError("Missing required specimen dimension(s): " + ", ".join(missing))
+        # Label, not database key: "thickness_mm" meant nothing to the technician reading it.
+        named = [(labels or {}).get(k, k) for k in missing]
+        plural = "s" if len(named) > 1 else ""
+        raise ValueError(f"Enter {' and '.join(named)} for this specimen "
+                         f"({len(named)} required value{plural} missing).")
 
 
 def run_file(module_id: str, lf: LoadedFile, options: Dict[str, Any]) -> None:
@@ -101,7 +112,7 @@ def run_file(module_id: str, lf: LoadedFile, options: Dict[str, Any]) -> None:
     lf.error = None
     lf.result = None
     try:
-        _req(lf, m.required_inputs)
+        _req(lf, m.required_inputs, {f.key: f.label for f in m.specimen_inputs})
         I = {k: float(v) for k, v in lf.inputs.items() if v not in (None, "")}
         d = lf.data
         if module_id == "ideal_ct":
@@ -134,7 +145,10 @@ def run_file(module_id: str, lf: LoadedFile, options: Dict[str, Any]) -> None:
             lf.result = beam.analyse(d.cycles, d.stiffness, d.modulus, d.normalized_modulus)
         else:
             raise ValueError(f"unknown module {module_id}")
+    except ValueError as e:     # the kernels raise ValueError to say something to the operator
+        lf.error = str(e)
     except Exception as e:      # keep going for the other files; surface the message per file
+        # An unexpected class is a bug rather than a message, so keep its name for the log.
         lf.error = f"{type(e).__name__}: {e}"
 
 
@@ -149,9 +163,11 @@ def result_dict(module_id: str, lf: LoadedFile) -> Dict[str, Any]:
             w = getattr(r, side)
             out[side] = {f.key: clean(getattr(w, f.key)) for f in m.result_fields}
             out[side].update(sip_ratio=clean(w.sip_ratio), extrapolated=w.extrapolated, manual=w.manual,
+                             needs_pick=bool(w.needs_pick),
                              strip_location=clean(w.strip_location), creep_location=clean(w.creep_location))
         out["average"] = dict(max_rut_mm=clean(r.avg_max_rut_mm), creep_slope=clean(r.avg_creep_slope),
                               stripping_slope=clean(r.avg_stripping_slope), sip_cycles=clean(r.avg_sip_cycles))
+        out["needs_pick"] = bool(r.needs_pick)
         return out
     for f in m.result_fields:
         out[f.key] = clean(getattr(r, f.key, None))
@@ -260,10 +276,14 @@ def results_table(module_id: str, ws: Workspace) -> Dict[str, Any]:
     if module_id == "hamburg":
         rows = []
         for lf in ws.files:
-            if lf.result is None:
-                continue
-            rd = result_dict(module_id, lf)
-            rows.append(dict(file_id=lf.id, specimen_id=lf.specimen_id or lf.name, left=rd["left"], right=rd["right"], average=rd["average"]))
+            row = dict(file_id=lf.id, specimen_id=lf.specimen_id or lf.name, error=lf.error)
+            if lf.result is not None:
+                rd = result_dict(module_id, lf)
+                # A specimen that failed used to be dropped from this table silently, so the
+                # results read as complete while a wheel was missing from the average.
+                row.update(left=rd["left"], right=rd["right"], average=rd["average"],
+                           needs_pick=rd["needs_pick"])
+            rows.append(row)
         return dict(columns=[dict(key=f.key, label=f.label, dp=f.dp, fmt=f.fmt) for f in m.result_fields], rows=rows)
     cols = [dict(key=f.key, label=f.label, dp=f.dp, fmt=f.fmt, kind="input") for f in m.specimen_inputs] + \
            [dict(key=f.key, label=f.label, dp=f.dp, fmt=f.fmt, kind="result") for f in m.result_fields]
@@ -277,7 +297,14 @@ def results_table(module_id: str, ws: Workspace) -> Dict[str, Any]:
         rows.append(row)
     stats = {}
     for c in cols:
-        vals = [r.get(c["key"]) for r in rows if isinstance(r.get(c["key"]), (int, float))]
+        pts = [(r.get("specimen_id") or f"#{i + 1}", r.get(c["key"]), bool(r.get("needs_pick")))
+               for i, r in enumerate(rows) if isinstance(r.get(c["key"]), (int, float))]
+        vals = [v for _, v, _ in pts]
         mean, std, cov = excel_stats(vals)
-        stats[c["key"]] = dict(mean=mean, std=std, cov=cov, n=len(vals), values=vals)
-    return dict(columns=cols, rows=rows, stats=stats)
+        stats[c["key"]] = dict(mean=mean, std=std, cov=cov, n=len(vals), values=vals,
+                               labels=[lb for lb, _, _ in pts],
+                               provisional=sum(1 for _, _, q in pts if q))
+    return dict(columns=cols, rows=rows, stats=stats,
+                provisional=[r.get("specimen_id") for r in rows if r.get("needs_pick")],
+                errors=[dict(specimen_id=r.get("specimen_id"), error=r.get("error"))
+                        for r in rows if r.get("error")])

@@ -9,11 +9,12 @@ uvicorn[standard]>=0.20
 python-multipart>=0.0.5
 pydantic>=1.10
 pyyaml>=6.0
+pillow>=9.0          # openpyxl needs it to place the institution logo in the report
 
 # Development / tests
 pytest>=7
 httpx>=0.23
 
 # Desktop packaging (Windows) — installed by build/build_windows.ps1
-# pywebview>=4.0
-# pyinstaller>=5.0
+# pywebview>=4.4
+# pyinstaller>=6.0,<7
